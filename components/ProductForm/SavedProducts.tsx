@@ -388,7 +388,22 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
       void loadProducts();
     });
 
-    return () => window.cancelAnimationFrame(frame);
+    const handleProductsImported = () => {
+      void loadProducts(true);
+    };
+
+    window.addEventListener(
+      "products-imported",
+      handleProductsImported,
+    );
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener(
+        "products-imported",
+        handleProductsImported,
+      );
+    };
   }, []);
 
   const modelAnalytics = useMemo<ModelAnalytics[]>(() => {

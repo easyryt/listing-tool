@@ -6,6 +6,7 @@ import {
   Box,
   Boxes,
   CircleDollarSign,
+  FileSpreadsheet,
   Layers3,
   Package,
   Plus,
@@ -17,6 +18,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+
+import ProductImport from "@/components/ProductImport";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -472,6 +475,18 @@ export default function ProductsDashboard() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
+                onClick={() =>
+                  document
+                    .querySelector("#product-import")
+                    ?.scrollIntoView({ behavior: "smooth", block: "center" })
+                }
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 text-sm font-semibold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100"
+              >
+                <FileSpreadsheet className="h-4 w-4" />
+                Import Excel
+              </button>
+              <button
+                type="button"
                 onClick={() => void refresh()}
                 disabled={refreshing}
                 className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -511,6 +526,10 @@ export default function ProductsDashboard() {
             </button>
           </div>
         ) : null}
+
+        <div className="mt-5">
+          <ProductImport onImported={loadDashboard} />
+        </div>
 
         <section className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
           <StatCard
