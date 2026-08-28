@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   Layers3,
   Package,
+  Pencil,
   Plus,
   RefreshCw,
   Search,
@@ -23,6 +24,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useState,
@@ -32,6 +34,7 @@ import { useRouter } from "next/navigation";
 
 import { exportExcel } from "@/lib/excel";
 import type { Product as ProductFormProduct } from "./ProductCard";
+import ProductEditorModal from "./ProductEditorModal";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -313,6 +316,19 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
     image4: "",
   });
 
+  const [
+    editor,
+    setEditor,
+  ] = useState<{
+    product: Product;
+    family: Product[];
+  } | null>(null);
+
+  const [
+    notice,
+    setNotice,
+  ] = useState<string | null>(null);
+
   const [isExporting, setIsExporting] =
     useState(false);
 
@@ -327,7 +343,7 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
   /* LOAD PRODUCTS                                                            */
   /* ------------------------------------------------------------------------ */
 
-  const loadProducts = async (
+  const loadProducts = useCallback(async (
     silent = false,
   ) => {
     try {
@@ -339,36 +355,75 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
 
       setError(null);
 
+      const modelQuery = initialModel
+        ? `&model=${encodeURIComponent(initialModel)}`
+        : "";
+
+      const endpoint = (page: number) =>
+        `/products?kind=parent&limit=500&page=${page}&sort=newest${modelQuery}`;
+
       const response =
         await apiRequest<ProductsResponse>(
-          "/products?kind=parent&limit=500&sort=newest",
+          endpoint(1),
         );
 
-      const parents =
-        response.products ?? [];
+      const parents = [
+        ...(response.products ?? []),
+      ];
 
-      setProducts(parents);
+      const totalPages =
+        response.pagination?.totalPages ?? 1;
 
-      setSelectedExportIds(
-        new Set(
-          parents.flatMap(
-            (parent) => [
+      const applyCatalog = () => {
+        setProducts([...parents]);
+
+        setSelectedExportIds(
+          new Set(
+            parents.flatMap((parent) => [
               parent.id,
               ...(parent.variants ?? []).map(
                 (variant) => variant.id,
               ),
-            ],
+            ]),
           ),
-        ),
-      );
+        );
 
-      setExpandedProducts(
-        new Set(
-          parents.map(
-            (product) => product.id,
+        setExpandedProducts(
+          new Set(
+            parents.map((product) => product.id),
           ),
-        ),
-      );
+        );
+      };
+
+      // Render the newest page immediately. Remaining legacy pages load in
+      // the background, so the catalog stays responsive even before a backend
+      // with exact model filtering has been deployed.
+      if (!silent) {
+        applyCatalog();
+        setIsLoading(false);
+      }
+
+      // The API caps each request at 500 parents. Load every page so older
+      // products remain available in model catalogs and in the editor.
+      for (let page = 2; page <= totalPages; page += 4) {
+        const pageNumbers = Array.from(
+          { length: Math.min(4, totalPages - page + 1) },
+          (_, index) => page + index,
+        );
+        const pageResponses = await Promise.all(
+          pageNumbers.map((pageNumber) =>
+            apiRequest<ProductsResponse>(
+              endpoint(pageNumber),
+            ),
+          ),
+        );
+
+        for (const pageResponse of pageResponses) {
+          parents.push(...(pageResponse.products ?? []));
+        }
+      }
+
+      applyCatalog();
     } catch (err) {
       console.error(err);
 
@@ -381,7 +436,7 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  };
+  }, [initialModel]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -404,7 +459,7 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
         handleProductsImported,
       );
     };
-  }, []);
+  }, [loadProducts]);
 
   const modelAnalytics = useMemo<ModelAnalytics[]>(() => {
     const models = [
@@ -849,6 +904,41 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
   /* DETAIL                                                                    */
   /* ------------------------------------------------------------------------ */
 
+  const openEditor = (
+    product: Product,
+  ) => {
+    const parent = product.parentId
+      ? products.find(
+          (item) =>
+            item.id === product.parentId ||
+            item.variants?.some(
+              (variant) => variant.id === product.id,
+            ),
+        )
+      : products.find(
+          (item) => item.id === product.id,
+        );
+
+    const family = parent
+      ? [parent, ...(parent.variants ?? [])]
+      : [product];
+
+    setNotice(null);
+    setEditor({ product, family });
+  };
+
+  const productSaved = async (
+    product: Product,
+  ) => {
+    setEditor(null);
+    setSelectedProduct(null);
+    setDetail(null);
+    await loadProducts(true);
+    setNotice(
+      `${product.parentId ? "Variant" : "Product"} updated successfully.`,
+    );
+  };
+
   const openProduct = async (
     product: Product,
   ) => {
@@ -929,11 +1019,16 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
 
       setProducts(
         (current) =>
-          current.filter(
-            (item) =>
-              item.id !==
-              product.id,
-          ),
+          current
+            .filter(
+              (item) => item.id !== product.id,
+            )
+            .map((item) => ({
+              ...item,
+              variants: (item.variants ?? []).filter(
+                (variant) => variant.id !== product.id,
+              ),
+            })),
       );
 
       setSelectedExportIds(
@@ -1496,6 +1591,20 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
             </div>
           </div>
         </header>
+
+        {notice && (
+          <div className="mb-5 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+            <p>{notice}</p>
+            <button
+              type="button"
+              onClick={() => setNotice(null)}
+              className="shrink-0 rounded-md p-1 hover:bg-emerald-100"
+              aria-label="Close success message"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
 
         {/* ERROR */}
         {error && (
@@ -2172,6 +2281,16 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
                             </IconButton>
 
                             <IconButton
+                              title="Edit product"
+                              onClick={() =>
+                                openEditor(product)
+                              }
+                              className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                            >
+                              <Pencil size={15} />
+                            </IconButton>
+
+                            <IconButton
                               title={`Manage charms for design ${product.designNumber}`}
                               onClick={() =>
                                 openCharms(
@@ -2456,7 +2575,17 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
                                               size={
                                                 13
                                               }
-                                            />
+                                              />
+                                          </IconButton>
+
+                                          <IconButton
+                                            title="Edit variant"
+                                            onClick={() =>
+                                              openEditor(variant)
+                                            }
+                                            className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                                          >
+                                            <Pencil size={13} />
                                           </IconButton>
 
                                           <IconButton
@@ -2513,6 +2642,15 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
         )}
       </div>
 
+      {editor && (
+        <ProductEditorModal
+          product={editor.product}
+          family={editor.family}
+          onClose={() => setEditor(null)}
+          onSaved={productSaved}
+        />
+      )}
+
       {/* DETAIL DRAWER */}
       {selectedProduct && (
         <ProductDrawer
@@ -2556,6 +2694,7 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
                 selectedProduct,
             )
           }
+          onEdit={openEditor}
           onCharms={() =>
             openCharms(
               detail?.product ??
@@ -2809,6 +2948,7 @@ function ProductDrawer({
   onStock,
   onDelete,
   onImages,
+  onEdit,
   onCharms,
 }: {
   product: Product;
@@ -2821,6 +2961,7 @@ function ProductDrawer({
   ) => void;
   onDelete: () => void;
   onImages: () => void;
+  onEdit: (product: Product) => void;
   onCharms: () => void;
 }) {
   return (
@@ -2908,7 +3049,16 @@ function ProductDrawer({
             </div>
 
             {/* ACTIONS */}
-            <div className="grid grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+              <button
+                type="button"
+                onClick={() => onEdit(product)}
+                className="rounded-xl border border-blue-200 bg-blue-600 px-3 py-3 text-xs font-bold text-white transition hover:bg-blue-700"
+              >
+                <Pencil size={15} className="mx-auto mb-1" />
+                Edit
+              </button>
+
               <button
                 type="button"
                 onClick={() =>
@@ -3173,6 +3323,14 @@ function ProductDrawer({
                           variant.inventory
                         }
                       />
+
+                      <IconButton
+                        title={`Edit variant V${variant.variantNumber ?? variant.version ?? ""}`}
+                        onClick={() => onEdit(variant)}
+                        className="border-blue-200 text-blue-600 hover:bg-blue-50"
+                      >
+                        <Pencil size={13} />
+                      </IconButton>
                     </div>
                   ),
                 )}

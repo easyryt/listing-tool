@@ -59,6 +59,7 @@ export type FormData = {
   type: string;
 
   price: number;
+  wrongDefectiveReturnsPrice?: number;
   mrp: number;
   gst: number;
   hsn: string;
@@ -91,6 +92,7 @@ export type FormData = {
   designCode: string;
   designNumber: string;
   designId: string;
+  styleId?: string;
 
   printType: string;
   finish: string;
@@ -110,6 +112,7 @@ export type Product = FormData & {
 
   parentId?: string;
   variantNumber?: number;
+  variantType?: "standard" | "charm";
 };
 
 type VariantImageField =

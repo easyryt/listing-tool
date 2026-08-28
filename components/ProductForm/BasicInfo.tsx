@@ -34,6 +34,8 @@ export default function BasicInfo({
     });
   const lastAppliedTitle =
     useRef("");
+  const categoryField =
+    register("category");
 
   useEffect(() => {
     const title =
@@ -122,7 +124,18 @@ export default function BasicInfo({
         </label>
 
         <select
-          {...register("category")}
+          {...categoryField}
+          onChange={(event) => {
+            categoryField.onChange(event);
+            setValue(
+              "genericName",
+              event.target.value,
+              {
+                shouldDirty: true,
+                shouldValidate: true,
+              },
+            );
+          }}
           className="w-full rounded-xl border border-slate-300 px-4 py-3"
         >
           {CATEGORIES.map((item) => (

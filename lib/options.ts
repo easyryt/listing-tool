@@ -1,3 +1,5 @@
+import listingOptions from "./listing-options.json";
+
 // =========================
 // Brand
 // =========================
@@ -10,9 +12,7 @@ export const BRANDS = [
 // Category
 // =========================
 
-export const CATEGORIES = [
-  "Mobile Cases & Covers",
-];
+export const CATEGORIES = listingOptions.categories as readonly string[];
 
 // =========================
 // Material

@@ -1,37 +1,11 @@
+import listingOptions from "./listing-options.json";
+
 // =====================================
 // Phone Models
 // =====================================
 
-export const PHONE_MODELS = [
-  // Apple
-  "iPhone 11",
-  "iPhone 12",
-  "iPhone 13",
-  "iPhone 14",
-  "iPhone 15",
-  "iPhone 16",
-
-  // Samsung
-  "Samsung S23",
-  "Samsung S24",
-  "Samsung S25",
-
-  // OnePlus
-  "OnePlus 12",
-  "OnePlus 13",
-
-  // Vivo
-  "Vivo V40",
-  "Vivo V50",
-
-  // Realme
-  "Realme 13",
-  "Realme 14",
-
-  // Redmi
-  "Redmi Note 13",
-  "Redmi Note 14",
-] as const;
+export const PHONE_MODELS =
+  listingOptions.compatibleModels as readonly string[];
 
 // =====================================
 // SKU Model Codes
@@ -74,5 +48,35 @@ export const MODEL_CODES: Record<string, string> = {
 
 export function getModelCode(model: string): string {
   const key = model.trim();
-  return MODEL_CODES[key] ?? key;
+
+  if (MODEL_CODES[key]) {
+    return MODEL_CODES[key];
+  }
+
+  const compact = (value: string) =>
+    value
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "")
+      .slice(0, 24);
+  const appleMatch = key.match(/^(?:APPLE\s+)?IPHONE\s+(.+)$/i);
+
+  if (appleMatch) {
+    return `AP-IP${compact(appleMatch[1])}`;
+  }
+
+  for (const [brandPattern, brandCode] of [
+    [/^SAMSUNG\s+(.+)$/i, "SAM"],
+    [/^ONEPLUS\s+(.+)$/i, "OP"],
+    [/^VIVO\s+(.+)$/i, "VV"],
+    [/^REALME\s+(.+)$/i, "RM"],
+    [/^REDMI\s+(.+)$/i, "RDM"],
+  ] as const) {
+    const match = key.match(brandPattern);
+
+    if (match) {
+      return `${brandCode}-${compact(match[1])}`;
+    }
+  }
+
+  return compact(key) || "MODEL";
 }

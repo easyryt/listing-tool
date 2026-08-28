@@ -1,4 +1,4 @@
-import { MODEL_CODES } from "./models";
+import { getModelCode } from "./models";
 
 // =====================================
 // Brand Codes
@@ -13,7 +13,18 @@ const BRAND_CODES: Record<string, string> = {
 // =====================================
 
 const CATEGORY_CODES: Record<string, string> = {
+  "Audio Device": "AD",
+  "Back Case": "BC",
+  "Back Cover": "BC",
+  Electronics: "EL",
+  "Electronics Accessories": "EA",
+  "Mobile Case": "MC",
   "Mobile Cases & Covers": "MC",
+  "Mobile Cover": "MC",
+  Others: "OTH",
+  "Storage Device": "SD",
+  "Video Device": "VD",
+  "Wearable Gadget": "WG",
 };
 
 // =====================================
@@ -44,12 +55,11 @@ function getBrandCode(brand: string) {
 function getCategoryCode(category: string) {
   return (
     CATEGORY_CODES[category.trim()] ??
-    category.trim().toUpperCase()
+    category
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, "")
   );
-}
-
-function getModelCode(model: string) {
-  return MODEL_CODES[model.trim()] ?? model.trim();
 }
 
 function getColorCode(color: string) {

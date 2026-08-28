@@ -176,50 +176,74 @@ export default function ModelSelector({
   return (
     <SectionCard
       title="Phone Models"
-      description="Search and add supported phone models for this product."
+      description={`${PHONE_MODELS.length.toLocaleString("en-IN")} workbook-compatible models are available to search or browse.`}
     >
       {/* ================================================================ */}
       {/* SEARCH                                                           */}
       {/* ================================================================ */}
 
-      <div className="relative">
-        <Search
-          size={18}
-          className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-        />
+      <div className="grid gap-3 lg:grid-cols-2">
+        <div className="relative">
+          <Search
+            size={18}
+            className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+          />
 
-        <input
-          ref={searchRef}
-          value={
-            search
-          }
-          onChange={(
-            event,
-          ) =>
-            setSearch(
-              event.target
-                .value,
-            )
-          }
-          onKeyDown={(
-            event,
-          ) => {
-            if (
-              event.key ===
-                "Enter" &&
-              filteredModels.length >
-                0
-            ) {
-              event.preventDefault();
+          <input
+            ref={searchRef}
+            value={
+              search
+            }
+            onChange={(
+              event,
+            ) =>
+              setSearch(
+                event.target
+                  .value,
+              )
+            }
+            onKeyDown={(
+              event,
+            ) => {
+              if (
+                event.key ===
+                  "Enter" &&
+                filteredModels.length >
+                  0
+              ) {
+                event.preventDefault();
 
-              addModel(
-                filteredModels[0],
-              );
+                addModel(
+                  filteredModels[0],
+                );
+              }
+            }}
+            placeholder="Search any compatible model..."
+            className="w-full rounded-xl border border-slate-300 py-3 pl-11 pr-4 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+          />
+        </div>
+
+        <select
+          value=""
+          onChange={(event) => {
+            if (event.target.value) {
+              addModel(event.target.value);
             }
           }}
-          placeholder="Search iPhone, Samsung, Vivo, Redmi..."
-          className="w-full rounded-xl border border-slate-300 py-3 pl-11 pr-4 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
-        />
+          className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+          aria-label="Browse all compatible models"
+        >
+          <option value="">Browse all compatible models…</option>
+          {PHONE_MODELS.map((model) => (
+            <option
+              key={model}
+              value={model}
+              disabled={selectedModels.some((item) => item.model === model)}
+            >
+              {model}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* ================================================================ */}
@@ -317,7 +341,7 @@ export default function ModelSelector({
           <p className="mt-2 text-sm text-slate-500">
             Search for a phone model
             above and press Enter or
-            click the "+" button to add
+            click the &quot;+&quot; button to add
             it.
           </p>
         </div>

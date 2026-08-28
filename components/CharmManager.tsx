@@ -10,6 +10,8 @@ import {
   Layers3,
   Package,
   RefreshCw,
+  RotateCcw,
+  Save,
   Search,
   Trash2,
   Wand2,
@@ -68,6 +70,7 @@ type EditableField =
   | "theme"
   | "type"
   | "price"
+  | "wrongDefectiveReturnsPrice"
   | "mrp"
   | "gst"
   | "hsn"
@@ -92,6 +95,7 @@ type EditableField =
   | "designCode"
   | "designNumber"
   | "sku"
+  | "styleId"
   | "printType"
   | "finish"
   | "version"
@@ -159,6 +163,11 @@ const FIELD_GROUPS: FieldGroup[] = [
     description: "Commercial and stock values.",
     fields: [
       { key: "price", label: "Price", number: true },
+      {
+        key: "wrongDefectiveReturnsPrice",
+        label: "Wrong/Defective Return Price",
+        number: true,
+      },
       { key: "mrp", label: "MRP", number: true },
       { key: "gst", label: "GST", number: true },
       { key: "hsn", label: "HSN" },
@@ -174,6 +183,7 @@ const FIELD_GROUPS: FieldGroup[] = [
       { key: "designCode", label: "Design Code" },
       { key: "designNumber", label: "Design Number", locked: true },
       { key: "sku", label: "SKU", multiline: true },
+      { key: "styleId", label: "Style ID" },
       { key: "printType", label: "Print Type" },
       { key: "finish", label: "Finish" },
       { key: "version", label: "Version" },
@@ -222,6 +232,8 @@ const FIELD_GROUPS: FieldGroup[] = [
 const EDITABLE_FIELDS = FIELD_GROUPS.flatMap((group) =>
   group.fields.map((field) => field.key),
 );
+
+const TABLE_FIELDS = FIELD_GROUPS.flatMap((group) => group.fields);
 
 const NUMBER_FIELDS = new Set(
   FIELD_GROUPS.flatMap((group) =>
@@ -328,7 +340,11 @@ function cloneRow<T extends EditableRow>(row: T): T {
 function updateField<T extends EditableRow>(row: T, field: EditableField, value: string): T {
   return {
     ...row,
-    [field]: NUMBER_FIELDS.has(field) ? Number(value || 0) : value,
+    [field]: NUMBER_FIELDS.has(field)
+      ? field === "wrongDefectiveReturnsPrice" && value === ""
+        ? undefined
+        : Number(value || 0)
+      : value,
   } as T;
 }
 
@@ -337,10 +353,6 @@ function rowPayload(row: EditableRow) {
   for (const field of EDITABLE_FIELDS) payload[field] = row[field];
   payload.models = row.models;
   return payload;
-}
-
-function currency(value: number) {
-  return `₹${Number(value || 0).toLocaleString("en-IN")}`;
 }
 
 export default function CharmManager({
@@ -356,11 +368,12 @@ export default function CharmManager({
   const [drafts, setDrafts] = useState<CharmDraft[]>([]);
   const [charms, setCharms] = useState<Charm[]>([]);
   const [selectedExportIds, setSelectedExportIds] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<WorkspaceTab>("drafts");
+  const [activeTab, setActiveTab] = useState<WorkspaceTab>("stored");
   const [sourceSearch, setSourceSearch] = useState("");
   const [rowSearch, setRowSearch] = useState("");
   const [showAllSources, setShowAllSources] = useState(false);
   const [editor, setEditor] = useState<{ mode: WorkspaceTab; row: EditableRow } | null>(null);
+  const [tableEdits, setTableEdits] = useState<Record<string, EditableRow>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -403,6 +416,8 @@ export default function CharmManager({
         setRootProduct(root);
         setSources([...sourceMap.values()]);
         setCharms(loadedCharms);
+        setTableEdits({});
+        setEditor(null);
         setSelectedExportIds(new Set(loadedCharms.map((charm) => charm.id)));
       } catch (loadError) {
         if (loadError instanceof ApiError && loadError.status === 404) {
@@ -478,6 +493,55 @@ export default function CharmManager({
   const allCharmsSelected =
     charms.length > 0 && charms.every((charm) => selectedExportIds.has(charm.id));
 
+  const clearTableEdit = (id: string) => {
+    setTableEdits((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+  };
+
+  const updateTableField = (
+    row: EditableRow,
+    field: EditableField,
+    value: string,
+  ) => {
+    setTableEdits((current) => {
+      const workingRow = cloneRow(current[row.id] ?? row);
+      return {
+        ...current,
+        [row.id]: updateField(workingRow, field, value),
+      };
+    });
+  };
+
+  const updateTableModels = (row: EditableRow, value: string) => {
+    const models = value
+      .split(/\r?\n/)
+      .map((model) => model.trim())
+      .filter(Boolean)
+      .map((model) => ({ model }));
+
+    setTableEdits((current) => ({
+      ...current,
+      [row.id]: {
+        ...cloneRow(current[row.id] ?? row),
+        models,
+      },
+    }));
+  };
+
+  const applyTableDraft = (row: EditableRow) => {
+    setDrafts((current) =>
+      current.map((draft) =>
+        draft.id === row.id ? (cloneRow(row) as CharmDraft) : draft,
+      ),
+    );
+    clearTableEdit(row.id);
+    setMessage("Draft changes applied.");
+  };
+
   const generateOne = (source: Product) => {
     if (draftSourceIds.has(source.id) || storedSourceIds.has(source.id)) return;
     setDrafts((current) => [...current, createDraft(source)]);
@@ -511,6 +575,7 @@ export default function CharmManager({
       const result = await storeDraftRequest(draft);
       setDrafts((current) => current.filter((item) => item.id !== draft.id));
       setCharms((current) => [result.charm, ...current]);
+      clearTableEdit(draft.id);
       setSelectedExportIds((current) => new Set(current).add(result.charm.id));
       setEditor(null);
       setMessage(`${sourceLabel(draft)} charm stored separately.`);
@@ -530,7 +595,9 @@ export default function CharmManager({
     try {
       setBulkSaving(true);
       setError(null);
-      const snapshot = drafts;
+      const snapshot = drafts.map(
+        (draft) => (tableEdits[draft.id] ?? draft) as CharmDraft,
+      );
       const results = await Promise.allSettled(snapshot.map(storeDraftRequest));
       const stored: Charm[] = [];
       const failedIds = new Set<string>();
@@ -546,6 +613,14 @@ export default function CharmManager({
 
       setCharms((current) => [...stored, ...current]);
       setDrafts((current) => current.filter((draft) => failedIds.has(draft.id)));
+      setTableEdits((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(
+            ([id]) =>
+              !snapshot.some((draft) => draft.id === id) || failedIds.has(id),
+          ),
+        ),
+      );
       setSelectedExportIds((current) => {
         const next = new Set(current);
         stored.forEach((charm) => next.add(charm.id));
@@ -574,6 +649,7 @@ export default function CharmManager({
       setCharms((current) =>
         current.map((item) => (item.id === charm.id ? result.charm : item)),
       );
+      clearTableEdit(charm.id);
       setEditor(null);
       setMessage("Charm changes saved. The source product was not changed.");
     } catch (saveError) {
@@ -596,6 +672,7 @@ export default function CharmManager({
         { method: "DELETE" },
       );
       setCharms((current) => current.filter((item) => item.id !== charm.id));
+      clearTableEdit(charm.id);
       setSelectedExportIds((current) => {
         const next = new Set(current);
         next.delete(charm.id);
@@ -650,6 +727,7 @@ export default function CharmManager({
     setDrafts((current) =>
       current.map((draft) => (draft.id === editor.row.id ? (editor.row as CharmDraft) : draft)),
     );
+    clearTableEdit(editor.row.id);
     setEditor(null);
     setMessage("Draft changes applied.");
   };
@@ -788,10 +866,23 @@ export default function CharmManager({
               selectedIds={selectedExportIds}
               savingIds={savingIds}
               deletingId={deletingId}
+              edits={tableEdits}
               onToggleSelect={(id) => setSelectedExportIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
-              onEdit={(row) => setEditor({ mode: activeTab, row: cloneRow(row) })}
+              onFieldChange={updateTableField}
+              onModelsChange={updateTableModels}
+              onReset={clearTableEdit}
+              onApplyDraft={applyTableDraft}
+              onSaveStored={(row) => void saveStoredCharm(row as Charm)}
+              onEdit={(row) => setEditor({ mode: activeTab, row: cloneRow(tableEdits[row.id] ?? row) })}
               onStore={(row) => void storeDraft(row as CharmDraft)}
-              onDelete={(row) => activeTab === "drafts" ? setDrafts((current) => current.filter((draft) => draft.id !== row.id)) : void deleteCharm(row as Charm)}
+              onDelete={(row) => {
+                if (activeTab === "drafts") {
+                  setDrafts((current) => current.filter((draft) => draft.id !== row.id));
+                  clearTableEdit(row.id);
+                } else {
+                  void deleteCharm(row as Charm);
+                }
+              }}
             />
           ) : (
             <EmptyState
@@ -849,32 +940,307 @@ function SourceCard({ source, drafted, stored, onGenerate }: { source: Product; 
   );
 }
 
-function CharmTable({ rows, mode, selectedIds, savingIds, deletingId, onToggleSelect, onEdit, onStore, onDelete }: { rows: EditableRow[]; mode: WorkspaceTab; selectedIds: Set<string>; savingIds: Set<string>; deletingId: string | null; onToggleSelect: (id: string) => void; onEdit: (row: EditableRow) => void; onStore: (row: EditableRow) => void; onDelete: (row: EditableRow) => void }) {
+function CharmTable({
+  rows,
+  mode,
+  selectedIds,
+  savingIds,
+  deletingId,
+  edits,
+  onToggleSelect,
+  onFieldChange,
+  onModelsChange,
+  onReset,
+  onApplyDraft,
+  onSaveStored,
+  onEdit,
+  onStore,
+  onDelete,
+}: {
+  rows: EditableRow[];
+  mode: WorkspaceTab;
+  selectedIds: Set<string>;
+  savingIds: Set<string>;
+  deletingId: string | null;
+  edits: Record<string, EditableRow>;
+  onToggleSelect: (id: string) => void;
+  onFieldChange: (row: EditableRow, field: EditableField, value: string) => void;
+  onModelsChange: (row: EditableRow, value: string) => void;
+  onReset: (id: string) => void;
+  onApplyDraft: (row: EditableRow) => void;
+  onSaveStored: (row: EditableRow) => void;
+  onEdit: (row: EditableRow) => void;
+  onStore: (row: EditableRow) => void;
+  onDelete: (row: EditableRow) => void;
+}) {
+  const productNameField = TABLE_FIELDS.find(
+    (field) => field.key === "productName",
+  ) as FieldSpec;
+  const remainingFields = TABLE_FIELDS.filter(
+    (field) => field.key !== "productName",
+  );
+  const sourceLeft = mode === "stored" ? "left-[52px]" : "left-0";
+  const productLeft = mode === "stored" ? "left-[172px]" : "left-[120px]";
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[1150px] border-collapse text-left">
-        <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500"><tr>{mode === "stored" && <th className="w-12 px-4 py-3">Export</th>}<th className="px-4 py-3">Product</th><th className="px-4 py-3">Source</th><th className="px-4 py-3">Models</th><th className="px-4 py-3">Design</th><th className="px-4 py-3">SKU</th><th className="px-4 py-3">Price</th><th className="px-4 py-3">Stock</th><th className="px-4 py-3">Status</th><th className="px-4 py-3 text-right">Actions</th></tr></thead>
-        <tbody className="divide-y divide-slate-100">
-          {rows.map((row) => {
-            const saving = savingIds.has(row.id);
-            return (
-              <tr key={row.id} className="bg-white align-middle hover:bg-slate-50/70">
-                {mode === "stored" && <td className="px-4 py-3"><input type="checkbox" checked={selectedIds.has(row.id)} onChange={() => onToggleSelect(row.id)} aria-label={`Select ${row.productName} for export`} className="h-4 w-4 accent-emerald-600" /></td>}
-                <td className="max-w-80 px-4 py-3"><div className="flex items-center gap-3"><Thumbnail image={getImage(row)} alt={row.productName} small /><div className="min-w-0"><p className="line-clamp-2 text-xs font-semibold leading-5 text-slate-900">{row.productName}</p><p className="mt-0.5 text-[10px] text-slate-400">{row.brand || "No brand"}</p></div></div></td>
-                <td className="px-4 py-3"><SourceBadge item={row} /></td>
-                <td className="max-w-52 px-4 py-3 text-xs text-slate-600">{row.models?.map((model) => model.model).join(", ") || "—"}</td>
-                <td className="max-w-56 px-4 py-3"><p className="text-xs font-semibold text-slate-800">{row.designName}</p><p className="mt-1 text-[10px] font-bold text-blue-600">#{row.designNumber}</p></td>
-                <td className="max-w-64 px-4 py-3"><code className="break-all text-[10px] font-bold text-slate-600">{row.sku}</code></td>
-                <td className="whitespace-nowrap px-4 py-3"><p className="text-xs font-bold text-slate-900">{currency(row.price)}</p><p className="text-[10px] text-slate-400 line-through">{currency(row.mrp)}</p></td>
-                <td className="px-4 py-3 text-xs font-bold text-slate-800">{Number(row.inventory || 0).toLocaleString("en-IN")}</td>
-                <td className="px-4 py-3"><StatusBadge mode={mode} /></td>
-                <td className="px-4 py-3"><div className="flex justify-end gap-1.5"><IconButton title="Edit all fields" onClick={() => onEdit(row)}><Edit3 size={14} /></IconButton>{mode === "drafts" && <IconButton title="Store in database" onClick={() => onStore(row)} disabled={saving} success>{saving ? <RefreshCw size={14} className="animate-spin" /> : <Database size={14} />}</IconButton>}<IconButton title={mode === "drafts" ? "Remove draft" : "Delete charm"} onClick={() => onDelete(row)} disabled={deletingId === row.id || saving} danger>{deletingId === row.id ? <RefreshCw size={14} className="animate-spin" /> : <Trash2 size={14} />}</IconButton></div></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-blue-50/60 px-4 py-3">
+        <p className="text-xs font-semibold text-slate-700">
+          Edit directly in the table, then save each changed row. Scroll horizontally for every field.
+        </p>
+        <span className="rounded-full bg-white px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700 shadow-sm">
+          {rows.length} visible · {TABLE_FIELDS.length + 1} editable columns
+        </span>
+      </div>
+
+      <div className="relative max-h-[72vh] overflow-auto">
+        <table className="w-max min-w-full border-collapse text-left">
+          <thead className="sticky top-0 z-50 bg-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-600 shadow-[0_1px_0_#e2e8f0]">
+            <tr>
+              {mode === "stored" && (
+                <TableHead className="sticky left-0 z-[70] w-[52px] min-w-[52px] bg-slate-100 text-center">
+                  Export
+                </TableHead>
+              )}
+              <TableHead className={`sticky ${sourceLeft} z-[70] w-[120px] min-w-[120px] bg-slate-100`}>
+                Source
+              </TableHead>
+              <TableHead className={`sticky ${productLeft} z-[70] w-[300px] min-w-[300px] bg-slate-100 shadow-[4px_0_8px_-6px_rgba(15,23,42,0.45)]`}>
+                Product Name
+              </TableHead>
+              <TableHead className="w-[230px] min-w-[230px]">Models</TableHead>
+              {remainingFields.map((field) => (
+                <TableHead key={field.key} className={tableFieldWidth(field)}>
+                  {field.label}
+                  {field.locked && (
+                    <span className="ml-1 text-[8px] font-semibold normal-case text-slate-400">
+                      locked
+                    </span>
+                  )}
+                </TableHead>
+              ))}
+              <TableHead className="sticky right-0 z-[70] w-[190px] min-w-[190px] bg-slate-100 text-right shadow-[-4px_0_8px_-6px_rgba(15,23,42,0.45)]">
+                Actions
+              </TableHead>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-200">
+            {rows.map((row) => {
+              const workingRow = edits[row.id] ?? row;
+              const dirty = Boolean(edits[row.id]);
+              const saving = savingIds.has(row.id);
+              const deleting = deletingId === row.id;
+
+              return (
+                <tr key={row.id} className="group bg-white align-top hover:bg-blue-50/20">
+                  {mode === "stored" && (
+                    <td className="sticky left-0 z-30 w-[52px] min-w-[52px] border-r border-slate-200 bg-white px-3 py-3 text-center group-hover:bg-[#fafdff]">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(row.id)}
+                        onChange={() => onToggleSelect(row.id)}
+                        aria-label={`Select ${workingRow.productName} for export`}
+                        className="h-4 w-4 accent-emerald-600"
+                      />
+                    </td>
+                  )}
+
+                  <td className={`sticky ${sourceLeft} z-30 w-[120px] min-w-[120px] border-r border-slate-200 bg-white px-3 py-3 group-hover:bg-[#fafdff]`}>
+                    <SourceBadge item={workingRow} />
+                    <div className="mt-2">
+                      <StatusBadge mode={mode} />
+                    </div>
+                  </td>
+
+                  <EditableTableCell
+                    field={productNameField}
+                    row={workingRow}
+                    onChange={(value) => onFieldChange(row, productNameField.key, value)}
+                    className={`sticky ${productLeft} z-30 bg-white shadow-[4px_0_8px_-6px_rgba(15,23,42,0.45)] group-hover:bg-[#fafdff]`}
+                  />
+
+                  <td className="w-[230px] min-w-[230px] border-r border-slate-200 p-2">
+                    <textarea
+                      rows={3}
+                      value={workingRow.models?.map((model) => model.model).join("\n") ?? ""}
+                      onChange={(event) => onModelsChange(row, event.target.value)}
+                      aria-label={`Models for ${workingRow.productName}`}
+                      placeholder="One phone model per line"
+                      className={tableTextareaClass}
+                    />
+                  </td>
+
+                  {remainingFields.map((field) => (
+                    <EditableTableCell
+                      key={field.key}
+                      field={field}
+                      row={workingRow}
+                      onChange={(value) => onFieldChange(row, field.key, value)}
+                    />
+                  ))}
+
+                  <td className="sticky right-0 z-30 w-[190px] min-w-[190px] border-l border-slate-200 bg-white p-3 group-hover:bg-[#fafdff]">
+                    <div className="mb-2 flex items-center justify-end gap-1.5">
+                      {dirty ? (
+                        <span className="rounded-full bg-amber-100 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+                          Unsaved
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-[9px] font-bold uppercase tracking-wide text-emerald-700">
+                          Up to date
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      <IconButton
+                        title="Open comfortable full editor"
+                        onClick={() => onEdit(workingRow)}
+                        disabled={saving || deleting}
+                      >
+                        <Edit3 size={14} />
+                      </IconButton>
+                      <IconButton
+                        title="Reset unsaved row changes"
+                        onClick={() => onReset(row.id)}
+                        disabled={!dirty || saving || deleting}
+                      >
+                        <RotateCcw size={14} />
+                      </IconButton>
+                      {mode === "drafts" ? (
+                        <>
+                          <IconButton
+                            title="Apply row changes to draft"
+                            onClick={() => onApplyDraft(workingRow)}
+                            disabled={!dirty || saving || deleting}
+                            success
+                          >
+                            <Save size={14} />
+                          </IconButton>
+                          <IconButton
+                            title="Store charm in database"
+                            onClick={() => onStore(workingRow)}
+                            disabled={saving || deleting}
+                            success
+                          >
+                            {saving ? (
+                              <RefreshCw size={14} className="animate-spin" />
+                            ) : (
+                              <Database size={14} />
+                            )}
+                          </IconButton>
+                        </>
+                      ) : (
+                        <IconButton
+                          title="Save row changes to database"
+                          onClick={() => onSaveStored(workingRow)}
+                          disabled={!dirty || saving || deleting}
+                          success
+                        >
+                          {saving ? (
+                            <RefreshCw size={14} className="animate-spin" />
+                          ) : (
+                            <Save size={14} />
+                          )}
+                        </IconButton>
+                      )}
+                      <IconButton
+                        title={mode === "drafts" ? "Remove draft" : "Delete charm"}
+                        onClick={() => onDelete(workingRow)}
+                        disabled={saving || deleting}
+                        danger
+                      >
+                        {deleting ? (
+                          <RefreshCw size={14} className="animate-spin" />
+                        ) : (
+                          <Trash2 size={14} />
+                        )}
+                      </IconButton>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
+  );
+}
+
+function TableHead({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <th className={`border-r border-slate-200 px-3 py-3 ${className}`}>
+      {children}
+    </th>
+  );
+}
+
+function tableFieldWidth(field: FieldSpec) {
+  if (field.number) return "w-[125px] min-w-[125px]";
+  if (field.key === "description") return "w-[330px] min-w-[330px]";
+  if (field.multiline || field.key.startsWith("image")) {
+    return "w-[290px] min-w-[290px]";
+  }
+  if (field.key === "sku") return "w-[340px] min-w-[340px]";
+  return "w-[180px] min-w-[180px]";
+}
+
+function EditableTableCell({
+  field,
+  row,
+  onChange,
+  className = "",
+}: {
+  field: FieldSpec;
+  row: EditableRow;
+  onChange: (value: string) => void;
+  className?: string;
+}) {
+  const value = String(row[field.key] ?? "");
+  const isImage = field.key.startsWith("image");
+  const useTextarea = Boolean(field.multiline);
+
+  return (
+    <td className={`border-r border-slate-200 p-2 ${tableFieldWidth(field)} ${className}`}>
+      {isImage && value && (
+        <div className="mb-2 flex items-center gap-2">
+          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+            <img src={value} alt="Charm preview" className="h-full w-full object-cover" />
+          </div>
+          <span className="truncate text-[10px] font-semibold text-slate-400">Preview</span>
+        </div>
+      )}
+      {useTextarea ? (
+        <textarea
+          rows={field.key === "description" ? 4 : 3}
+          value={value}
+          readOnly={field.locked}
+          onChange={(event) => onChange(event.target.value)}
+          aria-label={`${field.label} for ${row.productName}`}
+          placeholder={field.placeholder}
+          className={`${tableTextareaClass} ${field.locked ? tableLockedClass : ""}`}
+        />
+      ) : (
+        <input
+          type={field.number ? "number" : "text"}
+          min={field.number ? 0 : undefined}
+          step={field.number ? "any" : undefined}
+          value={value}
+          readOnly={field.locked}
+          onChange={(event) => onChange(event.target.value)}
+          aria-label={`${field.label} for ${row.productName}`}
+          placeholder={field.placeholder}
+          className={`${tableInputClass} ${field.locked ? tableLockedClass : ""}`}
+        />
+      )}
+    </td>
   );
 }
 
@@ -1012,6 +1378,9 @@ function LoadingPage() {
 const inputClass = "h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-3 focus:ring-blue-100";
 const textareaClass = "w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm leading-5 text-slate-800 outline-none transition focus:border-blue-500 focus:ring-3 focus:ring-blue-100";
 const lockedClass = "cursor-not-allowed bg-slate-100 font-bold text-slate-500";
+const tableInputClass = "h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-500 focus:ring-3 focus:ring-blue-100";
+const tableTextareaClass = "w-full resize-y rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs leading-4 text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-500 focus:ring-3 focus:ring-blue-100";
+const tableLockedClass = "cursor-not-allowed bg-slate-100 font-bold text-slate-500";
 const secondaryButtonClass = "inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-40";
 const primaryButtonClass = "inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:opacity-40";
 const successButtonClass = "inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-bold text-white shadow-sm transition hover:bg-slate-800 disabled:opacity-40";
