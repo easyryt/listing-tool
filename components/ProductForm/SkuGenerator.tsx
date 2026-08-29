@@ -43,8 +43,8 @@ type DesignNumberAvailabilityResponse = {
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
   (process.env.NODE_ENV === "development"
-    ? "https://listing-backend-code.onrender.com/api"
-    : "https://listing-backend-code.onrender.com/api")
+    ? "https://listing-tool-backend-b2xk.onrender.com/api"
+    : "https://listing-tool-backend-b2xk.onrender.com/api")
 ).replace(/\/$/, "");
 
 async function apiRequest<T>(

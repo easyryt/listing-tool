@@ -29,7 +29,7 @@ import type { Product } from "./ProductCard";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
-  "https://listing-backend-code.onrender.com/api"
+  "https://listing-tool-backend-b2xk.onrender.com/api"
 ).replace(/\/$/, "");
 
 type EditorTab =
