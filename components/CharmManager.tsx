@@ -16,6 +16,7 @@ import {
   Trash2,
   Wand2,
   X,
+  ZoomIn,
 } from "lucide-react";
 import {
   useCallback,
@@ -59,6 +60,7 @@ type CharmDraft = Charm & {
 
 type EditableRow = Charm | CharmDraft;
 type WorkspaceTab = "drafts" | "stored";
+type ImagePreviewState = { url: string; label: string };
 
 type EditableField =
   | "productName"
@@ -391,6 +393,7 @@ export default function CharmManager({
   const [rowSearch, setRowSearch] = useState("");
   const [showAllSources, setShowAllSources] = useState(false);
   const [editor, setEditor] = useState<{ mode: WorkspaceTab; row: EditableRow } | null>(null);
+  const [imagePreview, setImagePreview] = useState<ImagePreviewState | null>(null);
   const [tableEdits, setTableEdits] = useState<Record<string, EditableRow>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -891,6 +894,7 @@ export default function CharmManager({
               onToggleSelect={(id) => setSelectedExportIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
               onFieldChange={updateTableField}
               onModelsChange={updateTableModels}
+              onPreviewImage={(url, label) => setImagePreview({ url, label })}
               onReset={clearTableEdit}
               onApplyDraft={applyTableDraft}
               onSaveStored={(row) => void saveStoredCharm(row as Charm)}
@@ -922,9 +926,17 @@ export default function CharmManager({
           onClose={() => setEditor(null)}
           onFieldChange={updateEditorField}
           onModelsChange={updateEditorModels}
+          onPreviewImage={(url, label) => setImagePreview({ url, label })}
           onApplyDraft={applyDraftChanges}
           onStoreDraft={() => void storeDraft(editor.row as CharmDraft)}
           onSaveStored={() => void saveStoredCharm(editor.row as Charm)}
+        />
+      )}
+
+      {imagePreview && (
+        <ImagePreviewModal
+          preview={imagePreview}
+          onClose={() => setImagePreview(null)}
         />
       )}
     </main>
@@ -971,6 +983,7 @@ function CharmTable({
   onToggleSelect,
   onFieldChange,
   onModelsChange,
+  onPreviewImage,
   onReset,
   onApplyDraft,
   onSaveStored,
@@ -987,6 +1000,7 @@ function CharmTable({
   onToggleSelect: (id: string) => void;
   onFieldChange: (row: EditableRow, field: EditableField, value: string) => void;
   onModelsChange: (row: EditableRow, value: string) => void;
+  onPreviewImage: (url: string, label: string) => void;
   onReset: (id: string) => void;
   onApplyDraft: (row: EditableRow) => void;
   onSaveStored: (row: EditableRow) => void;
@@ -1078,6 +1092,7 @@ function CharmTable({
                     field={productNameField}
                     row={workingRow}
                     onChange={(value) => onFieldChange(row, productNameField.key, value)}
+                    onPreviewImage={onPreviewImage}
                     className={`sticky ${productLeft} z-30 bg-white shadow-[4px_0_8px_-6px_rgba(15,23,42,0.45)] group-hover:bg-[#fafdff]`}
                   />
 
@@ -1098,6 +1113,7 @@ function CharmTable({
                       field={field}
                       row={workingRow}
                       onChange={(value) => onFieldChange(row, field.key, value)}
+                      onPreviewImage={onPreviewImage}
                     />
                   ))}
 
@@ -1217,11 +1233,13 @@ function EditableTableCell({
   field,
   row,
   onChange,
+  onPreviewImage,
   className = "",
 }: {
   field: FieldSpec;
   row: EditableRow;
   onChange: (value: string) => void;
+  onPreviewImage: (url: string, label: string) => void;
   className?: string;
 }) {
   const value = String(row[field.key] ?? "");
@@ -1232,10 +1250,20 @@ function EditableTableCell({
     <td className={`border-r border-slate-200 p-2 ${tableFieldWidth(field)} ${className}`}>
       {isImage && value && (
         <div className="mb-2 flex items-center gap-2">
-          <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+          <button
+            type="button"
+            onClick={() => onPreviewImage(value, field.label)}
+            aria-label={`Open ${field.label} preview`}
+            className="group/preview relative h-10 w-10 shrink-0 cursor-zoom-in overflow-hidden rounded-lg border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100"
+          >
             <img src={value} alt="Charm preview" className="h-full w-full object-cover" />
-          </div>
-          <span className="truncate text-[10px] font-semibold text-slate-400">Preview</span>
+            <span className="absolute inset-0 flex items-center justify-center bg-slate-950/0 text-white opacity-0 transition group-hover/preview:bg-slate-950/35 group-hover/preview:opacity-100">
+              <ZoomIn size={14} />
+            </span>
+          </button>
+          <span className="truncate text-[10px] font-semibold text-slate-400">
+            Click to preview
+          </span>
         </div>
       )}
       {useTextarea ? (
@@ -1265,7 +1293,27 @@ function EditableTableCell({
   );
 }
 
-function EditDrawer({ editor, saving, onClose, onFieldChange, onModelsChange, onApplyDraft, onStoreDraft, onSaveStored }: { editor: { mode: WorkspaceTab; row: EditableRow }; saving: boolean; onClose: () => void; onFieldChange: (field: EditableField, value: string) => void; onModelsChange: (value: string) => void; onApplyDraft: () => void; onStoreDraft: () => void; onSaveStored: () => void }) {
+function EditDrawer({
+  editor,
+  saving,
+  onClose,
+  onFieldChange,
+  onModelsChange,
+  onPreviewImage,
+  onApplyDraft,
+  onStoreDraft,
+  onSaveStored,
+}: {
+  editor: { mode: WorkspaceTab; row: EditableRow };
+  saving: boolean;
+  onClose: () => void;
+  onFieldChange: (field: EditableField, value: string) => void;
+  onModelsChange: (value: string) => void;
+  onPreviewImage: (url: string, label: string) => void;
+  onApplyDraft: () => void;
+  onStoreDraft: () => void;
+  onSaveStored: () => void;
+}) {
   return (
     <div className="fixed inset-0 z-[80]">
       <button type="button" onClick={onClose} aria-label="Close editor" className="absolute inset-0 bg-slate-950/40 backdrop-blur-sm" />
@@ -1293,7 +1341,15 @@ function EditDrawer({ editor, saving, onClose, onFieldChange, onModelsChange, on
             </div>
             <textarea rows={2} value={editor.row.models?.map((model) => model.model).join(", ") || ""} onChange={(event) => onModelsChange(event.target.value)} className={textareaClass} placeholder="iPhone 13, iPhone 14" />
           </section>
-          {FIELD_GROUPS.map((group) => <EditorGroup key={group.title} group={group} row={editor.row} onChange={onFieldChange} />)}
+          {FIELD_GROUPS.map((group) => (
+            <EditorGroup
+              key={group.title}
+              group={group}
+              row={editor.row}
+              onChange={onFieldChange}
+              onPreviewImage={onPreviewImage}
+            />
+          ))}
         </div>
         <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-white p-4 sm:px-6">
           <button type="button" onClick={onClose} className={secondaryButtonClass}>Cancel</button>
@@ -1317,17 +1373,135 @@ function EditDrawer({ editor, saving, onClose, onFieldChange, onModelsChange, on
   );
 }
 
-function EditorGroup({ group, row, onChange }: { group: FieldGroup; row: EditableRow; onChange: (field: EditableField, value: string) => void }) {
+function EditorGroup({
+  group,
+  row,
+  onChange,
+  onPreviewImage,
+}: {
+  group: FieldGroup;
+  row: EditableRow;
+  onChange: (field: EditableField, value: string) => void;
+  onPreviewImage: (url: string, label: string) => void;
+}) {
   const isImages = group.title === "Images";
+  const images = [row.image1, row.image2, row.image3, row.image4];
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="mb-4">
         <h3 className="text-sm font-bold text-slate-900">{group.title}</h3>
         <p className="mt-1 text-[11px] text-slate-500">{group.description}</p>
       </div>
-      {isImages && <div className="mb-4 grid grid-cols-4 gap-2">{[row.image1, row.image2, row.image3, row.image4].map((image, index) => <div key={index} className="aspect-square overflow-hidden rounded-xl border border-slate-200 bg-slate-50">{image ? <img src={image} alt={`Preview ${index + 1}`} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-slate-300"><ImageIcon size={18} /></div>}</div>)}</div>}
+      {isImages && (
+        <div className="mb-4 grid grid-cols-4 gap-2">
+          {images.map((image, index) => {
+            const label = `Image ${index + 1} URL`;
+            return image ? (
+              <button
+                key={label}
+                type="button"
+                onClick={() => onPreviewImage(image, label)}
+                aria-label={`Open ${label} preview`}
+                className="group/preview relative aspect-square cursor-zoom-in overflow-hidden rounded-xl border border-slate-200 bg-slate-50 transition hover:border-blue-400 hover:ring-2 hover:ring-blue-100"
+              >
+                <img
+                  src={image}
+                  alt={`${label} preview`}
+                  className="h-full w-full object-cover transition group-hover/preview:scale-105"
+                />
+                <span className="absolute inset-0 flex items-center justify-center bg-slate-950/0 text-white opacity-0 transition group-hover/preview:bg-slate-950/35 group-hover/preview:opacity-100">
+                  <ZoomIn size={20} />
+                </span>
+              </button>
+            ) : (
+              <div
+                key={label}
+                aria-label={`${label} is empty`}
+                className="flex aspect-square items-center justify-center rounded-xl border border-slate-200 bg-slate-50 text-slate-300"
+              >
+                <ImageIcon size={18} />
+              </div>
+            );
+          })}
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">{group.fields.map((field) => <label key={field.key} className={field.multiline ? "sm:col-span-2" : ""}><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{field.label}</span>{field.multiline ? <textarea rows={field.key === "description" ? 4 : 2} value={String(row[field.key] ?? "")} readOnly={field.locked} onChange={(event) => onChange(field.key, event.target.value)} placeholder={field.placeholder} className={`${textareaClass} ${field.locked ? lockedClass : ""}`} /> : <input type={field.number ? "number" : "text"} value={String(row[field.key] ?? "")} readOnly={field.locked} onChange={(event) => onChange(field.key, event.target.value)} placeholder={field.placeholder} className={`${inputClass} ${field.locked ? lockedClass : ""}`} />}</label>)}</div>
     </section>
+  );
+}
+
+function ImagePreviewModal({
+  preview,
+  onClose,
+}: {
+  preview: ImagePreviewState;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="charm-image-preview-title"
+      className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6"
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close image preview"
+        className="absolute inset-0 bg-slate-950/75 backdrop-blur-sm"
+      />
+      <section className="relative flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950 shadow-2xl">
+        <header className="flex items-start justify-between gap-4 border-b border-white/10 px-4 py-3 text-white sm:px-5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <ImageIcon size={17} className="shrink-0 text-blue-300" />
+              <h2 id="charm-image-preview-title" className="truncate text-sm font-bold">
+                {preview.label}
+              </h2>
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">
+              Press Esc or click outside the image to close.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close image preview"
+            className="rounded-xl border border-white/15 bg-white/10 p-2 text-white transition hover:bg-white/20"
+          >
+            <X size={18} />
+          </button>
+        </header>
+        <div className="flex min-h-0 flex-1 items-center justify-center bg-black/30 p-3 sm:p-5">
+          <img
+            src={preview.url}
+            alt={`${preview.label} full preview`}
+            className="max-h-[75vh] max-w-full rounded-lg object-contain"
+          />
+        </div>
+        <footer className="border-t border-white/10 px-4 py-3 sm:px-5">
+          <p className="truncate text-xs text-slate-400" title={preview.url}>
+            {preview.url}
+          </p>
+        </footer>
+      </section>
+    </div>
   );
 }
 
