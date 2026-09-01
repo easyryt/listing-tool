@@ -31,7 +31,7 @@ import { useRouter } from "next/navigation";
 import type { Product as ProductFormProduct } from "@/components/ProductForm/ProductCard";
 import { exportExcel } from "@/lib/excel";
 import {
-  FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
 } from "@/lib/pricing";
 
@@ -185,7 +185,6 @@ const FIELD_GROUPS: FieldGroup[] = [
         key: "wrongDefectiveReturnsPrice",
         label: "Wrong/Defective Return Discount (₹)",
         number: true,
-        locked: true,
       },
       { key: "mrp", label: "MRP", number: true },
       { key: "gst", label: "GST", number: true },
@@ -342,7 +341,9 @@ function createDraft(product: Product): CharmDraft {
     sku,
     styleId: sku,
     price: getVariantPrice(variantNumber),
-    wrongDefectiveReturnsPrice: FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+    wrongDefectiveReturnsPrice:
+      product.wrongDefectiveReturnsPrice ??
+      DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
     sourceProductId: product.id,
     sourceKind: product.parentId ? "variant" : "parent",
     sourceVariantNumber: product.variantNumber,
@@ -392,8 +393,6 @@ function updateField<T extends EditableRow>(row: T, field: EditableField, value:
 function rowPayload(row: EditableRow) {
   const payload: Record<string, unknown> = {};
   for (const field of EDITABLE_FIELDS) payload[field] = row[field];
-  payload.wrongDefectiveReturnsPrice =
-    FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT;
   payload.styleId = row.sku;
   payload.models = row.models;
   return payload;
@@ -468,7 +467,8 @@ export default function CharmManager({
             styleId: sku,
             price: getVariantPrice(variantNumber),
             wrongDefectiveReturnsPrice:
-              FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+              charm.wrongDefectiveReturnsPrice ??
+              DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
           };
         });
 
@@ -966,6 +966,9 @@ export default function CharmManager({
               savingIds={savingIds}
               deletingId={deletingId}
               edits={tableEdits}
+              applyImageSourceId={
+                (activeTab === "drafts" ? drafts : charms)[0]?.id
+              }
               onToggleSelect={(id) => setSelectedExportIds((current) => { const next = new Set(current); if (next.has(id)) next.delete(id); else next.add(id); return next; })}
               onFieldChange={updateTableField}
               onModelsChange={updateTableModels}
@@ -1001,6 +1004,10 @@ export default function CharmManager({
         <EditDrawer
           editor={editor}
           saving={savingIds.has(editor.row.id)}
+          showApplyImageToAll={
+            editor.row.id ===
+            (editor.mode === "drafts" ? drafts : charms)[0]?.id
+          }
           onClose={() => setEditor(null)}
           onFieldChange={updateEditorField}
           onModelsChange={updateEditorModels}
@@ -1061,6 +1068,7 @@ function CharmTable({
   savingIds,
   deletingId,
   edits,
+  applyImageSourceId,
   onToggleSelect,
   onFieldChange,
   onModelsChange,
@@ -1079,6 +1087,7 @@ function CharmTable({
   savingIds: Set<string>;
   deletingId: string | null;
   edits: Record<string, EditableRow>;
+  applyImageSourceId?: string;
   onToggleSelect: (id: string) => void;
   onFieldChange: (row: EditableRow, field: EditableField, value: string) => void;
   onModelsChange: (row: EditableRow, value: string) => void;
@@ -1183,6 +1192,7 @@ function CharmTable({
                     onApplyImageToAll={(field, value) =>
                       onApplyImageToAll(row, field, value)
                     }
+                    showApplyImageToAll={false}
                     className={`sticky ${productLeft} z-30 bg-white shadow-[4px_0_8px_-6px_rgba(15,23,42,0.45)] group-hover:bg-[#fafdff]`}
                   />
 
@@ -1207,6 +1217,7 @@ function CharmTable({
                       onApplyImageToAll={(imageField, value) =>
                         onApplyImageToAll(row, imageField, value)
                       }
+                      showApplyImageToAll={row.id === applyImageSourceId}
                     />
                   ))}
 
@@ -1328,6 +1339,7 @@ function EditableTableCell({
   onChange,
   onPreviewImage,
   onApplyImageToAll,
+  showApplyImageToAll,
   className = "",
 }: {
   field: FieldSpec;
@@ -1335,6 +1347,7 @@ function EditableTableCell({
   onChange: (value: string) => void;
   onPreviewImage: (url: string, label: string) => void;
   onApplyImageToAll: (field: ImageField, value: string) => void;
+  showApplyImageToAll: boolean;
   className?: string;
 }) {
   const value = String(row[field.key] ?? "");
@@ -1385,7 +1398,7 @@ function EditableTableCell({
           className={`${tableInputClass} ${field.locked ? tableLockedClass : ""}`}
         />
       )}
-      {isImage && (
+      {isImage && showApplyImageToAll && (
         <button
           type="button"
           onClick={() => onApplyImageToAll(imageField, value)}
@@ -1403,6 +1416,7 @@ function EditableTableCell({
 function EditDrawer({
   editor,
   saving,
+  showApplyImageToAll,
   onClose,
   onFieldChange,
   onModelsChange,
@@ -1414,6 +1428,7 @@ function EditDrawer({
 }: {
   editor: { mode: WorkspaceTab; row: EditableRow };
   saving: boolean;
+  showApplyImageToAll: boolean;
   onClose: () => void;
   onFieldChange: (field: EditableField, value: string) => void;
   onModelsChange: (value: string) => void;
@@ -1458,6 +1473,7 @@ function EditDrawer({
               onChange={onFieldChange}
               onPreviewImage={onPreviewImage}
               onApplyImageToAll={onApplyImageToAll}
+              showApplyImageToAll={showApplyImageToAll}
             />
           ))}
         </div>
@@ -1489,12 +1505,14 @@ function EditorGroup({
   onChange,
   onPreviewImage,
   onApplyImageToAll,
+  showApplyImageToAll,
 }: {
   group: FieldGroup;
   row: EditableRow;
   onChange: (field: EditableField, value: string) => void;
   onPreviewImage: (url: string, label: string) => void;
   onApplyImageToAll: (field: ImageField, value: string) => void;
+  showApplyImageToAll: boolean;
 }) {
   const isImages = group.title === "Images";
   const images = [row.image1, row.image2, row.image3, row.image4];
@@ -1552,7 +1570,7 @@ function EditorGroup({
                 <label className="text-[11px] font-bold text-slate-600">
                   {field.label}
                 </label>
-                {imageField && (
+                {imageField && showApplyImageToAll && (
                   <button
                     type="button"
                     onClick={() => onApplyImageToAll(imageField, value)}

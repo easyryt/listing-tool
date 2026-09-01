@@ -47,14 +47,19 @@ export default function PricingDetails({
 
           <input
             type="number"
-            readOnly
+            min="0"
+            max="30"
+            step="1"
             {...register("wrongDefectiveReturnsPrice", {
               valueAsNumber: true,
+              required: true,
+              min: 0,
+              max: 30,
             })}
-            className="w-full cursor-not-allowed rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-600"
+            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
           <p className="mt-1.5 text-xs text-slate-500">
-            Fixed at ₹2 for every parent and variant.
+            Defaults to ₹2. Enter a discount from ₹0 to ₹30.
           </p>
         </div>
 

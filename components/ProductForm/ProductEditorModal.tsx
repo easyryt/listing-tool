@@ -16,7 +16,7 @@ import {
 
 import { PHONE_MODELS } from "@/lib/models";
 import {
-  FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
 } from "@/lib/pricing";
 import {
@@ -155,7 +155,8 @@ function productToForm(product: Product): EditorForm {
     type: text(product.type),
     price: numberText(getVariantPrice(variantNumber)),
     wrongDefectiveReturnsPrice: numberText(
-      FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+      product.wrongDefectiveReturnsPrice ??
+        DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
     ),
     mrp: numberText(product.mrp),
     gst: numberText(product.gst),
@@ -401,6 +402,15 @@ export default function ProductEditorModal({
       throw new Error("Add at least one compatible model.");
     }
 
+    const wrongDefectiveReturnsPrice = parseRequiredNumber(
+      form.wrongDefectiveReturnsPrice,
+      "Wrong/Defective Return Discount",
+    );
+
+    if (wrongDefectiveReturnsPrice > 30) {
+      throw new Error("Wrong/Defective Return Discount must be ₹30 or less.");
+    }
+
     return {
       productName: form.productName.trim(),
       description: form.description.trim(),
@@ -412,7 +422,7 @@ export default function ProductEditorModal({
       theme: form.theme.trim(),
       type: form.type.trim(),
       price: getVariantPrice(pricingVariantNumber),
-      wrongDefectiveReturnsPrice: FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+      wrongDefectiveReturnsPrice,
       mrp: parseRequiredNumber(form.mrp, "MRP"),
       gst: parseRequiredNumber(form.gst, "GST"),
       hsn: form.hsn.trim(),
@@ -862,7 +872,7 @@ export default function ProductEditorModal({
             >
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 <TextField label="Selling Price" type="number" min="0" step="1" required disabled value={form.price} onChange={(value) => setField("price", value)} help="Automatically follows the ₹191–₹195 variant cycle." />
-                <TextField label="Wrong/Defective Return Discount (₹)" type="number" min="0" step="1" disabled value={form.wrongDefectiveReturnsPrice} onChange={(value) => setField("wrongDefectiveReturnsPrice", value)} help="Fixed at ₹2 for every record." />
+                <TextField label="Wrong/Defective Return Discount (₹)" type="number" min="0" max="30" step="1" required value={form.wrongDefectiveReturnsPrice} onChange={(value) => setField("wrongDefectiveReturnsPrice", value)} help="Editable discount from ₹0 to ₹30; defaults to ₹2." />
                 <TextField label="MRP" type="number" min="0" step="0.01" required value={form.mrp} onChange={(value) => setField("mrp", value)} />
                 <TextField label="GST %" type="number" min="0" step="0.01" required value={form.gst} onChange={(value) => setField("gst", value)} />
                 <TextField label="HSN" value={form.hsn} onChange={(value) => setField("hsn", value)} />
@@ -1042,6 +1052,7 @@ function TextField({
   disabled = false,
   list,
   min,
+  max,
   step,
   placeholder,
   help,
@@ -1055,6 +1066,7 @@ function TextField({
   disabled?: boolean;
   list?: string;
   min?: string;
+  max?: string;
   step?: string;
   placeholder?: string;
   help?: string;
@@ -1072,6 +1084,7 @@ function TextField({
         disabled={disabled}
         list={list}
         min={min}
+        max={max}
         step={step}
         placeholder={placeholder}
         className={`${INPUT_CLASS} mt-2`}

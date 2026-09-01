@@ -28,7 +28,7 @@ import {
   generateSKU,
 } from "@/lib/sku";
 import {
-  FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
 } from "@/lib/pricing";
 
@@ -154,7 +154,7 @@ const DEFAULT_VALUES: FormData = {
   type: "Designer",
 
   price: getVariantPrice(1),
-  wrongDefectiveReturnsPrice: FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  wrongDefectiveReturnsPrice: DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   mrp: 899,
   gst: 18,
   hsn: "3926",
@@ -1288,9 +1288,6 @@ export default function ProductCard() {
           price:
             getVariantPrice(1),
 
-          wrongDefectiveReturnsPrice:
-            FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
-
           id:
             editingProductId ??
             createLocalId(),
@@ -1831,9 +1828,6 @@ export default function ProductCard() {
                 getVariantPrice(
                   versionNumber,
                 ),
-
-              wrongDefectiveReturnsPrice:
-                FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
 
               productName:
                 titles[
