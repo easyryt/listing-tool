@@ -2,8 +2,8 @@ export const COLUMN = {
   PRODUCT_NAME: "D",
   VARIATION: "E",
   PRICE: "F",
-  // Keep the template formula when no custom return price is provided.
-  RETURN_PRICE: "G",
+  // Keep the template formula when no custom return discount is provided.
+  RETURN_DISCOUNT: "G",
   MRP: "H",
   GST: "I",
   HSN: "J",

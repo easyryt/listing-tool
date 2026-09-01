@@ -73,7 +73,7 @@ export async function exportExcel(
         typeof product.wrongDefectiveReturnsPrice === "number" &&
         Number.isFinite(product.wrongDefectiveReturnsPrice)
       ) {
-        row.getCell(COLUMN.RETURN_PRICE).value =
+        row.getCell(COLUMN.RETURN_DISCOUNT).value =
           product.wrongDefectiveReturnsPrice;
       }
 

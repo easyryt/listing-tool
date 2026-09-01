@@ -27,6 +27,10 @@ import { useRouter } from "next/navigation";
 import {
   generateSKU,
 } from "@/lib/sku";
+import {
+  FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  getVariantPrice,
+} from "@/lib/pricing";
 
 import AiProductScanner, {
   type GeneratedProductDetails,
@@ -149,7 +153,8 @@ const DEFAULT_VALUES: FormData = {
   theme: "No Theme",
   type: "Designer",
 
-  price: 113,
+  price: getVariantPrice(1),
+  wrongDefectiveReturnsPrice: FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   mrp: 899,
   gst: 18,
   hsn: "3926",
@@ -1280,6 +1285,12 @@ export default function ProductCard() {
         {
           ...currentValues,
 
+          price:
+            getVariantPrice(1),
+
+          wrongDefectiveReturnsPrice:
+            FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+
           id:
             editingProductId ??
             createLocalId(),
@@ -1815,6 +1826,14 @@ export default function ProductCard() {
 
               variantNumber:
                 versionNumber,
+
+              price:
+                getVariantPrice(
+                  versionNumber,
+                ),
+
+              wrongDefectiveReturnsPrice:
+                FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
 
               productName:
                 titles[

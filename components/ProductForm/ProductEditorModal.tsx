@@ -16,6 +16,10 @@ import {
 
 import { PHONE_MODELS } from "@/lib/models";
 import {
+  FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  getVariantPrice,
+} from "@/lib/pricing";
+import {
   BRANDS,
   CATEGORIES,
   COLORS,
@@ -135,6 +139,10 @@ function numberText(value: unknown) {
 }
 
 function productToForm(product: Product): EditorForm {
+  const variantNumber = product.parentId
+    ? product.variantNumber ?? product.version
+    : 1;
+
   return {
     productName: text(product.productName),
     description: text(product.description),
@@ -145,9 +153,9 @@ function productToForm(product: Product): EditorForm {
     color: text(product.color),
     theme: text(product.theme),
     type: text(product.type),
-    price: numberText(product.price),
+    price: numberText(getVariantPrice(variantNumber)),
     wrongDefectiveReturnsPrice: numberText(
-      product.wrongDefectiveReturnsPrice,
+      FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
     ),
     mrp: numberText(product.mrp),
     gst: numberText(product.gst),
@@ -200,14 +208,6 @@ function parseRequiredNumber(value: string, label: string) {
   }
 
   return numeric;
-}
-
-function parseOptionalNumber(value: string, label: string) {
-  if (!value.trim()) {
-    return null;
-  }
-
-  return parseRequiredNumber(value, label);
 }
 
 async function updateProduct(id: string, body: Record<string, unknown>) {
@@ -379,6 +379,10 @@ export default function ProductEditorModal({
   };
 
   const buildPayload = () => {
+    const pricingVariantNumber = isVariant
+      ? activeProduct.variantNumber ?? form.version
+      : 1;
+
     const requiredStrings: Array<[string, string]> = [
       [form.productName, "Product Name"],
       [form.sku, "SKU"],
@@ -407,11 +411,8 @@ export default function ProductEditorModal({
       color: form.color.trim(),
       theme: form.theme.trim(),
       type: form.type.trim(),
-      price: parseRequiredNumber(form.price, "Price"),
-      wrongDefectiveReturnsPrice: parseOptionalNumber(
-        form.wrongDefectiveReturnsPrice,
-        "Wrong/Defective Returns Price",
-      ),
+      price: getVariantPrice(pricingVariantNumber),
+      wrongDefectiveReturnsPrice: FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
       mrp: parseRequiredNumber(form.mrp, "MRP"),
       gst: parseRequiredNumber(form.gst, "GST"),
       hsn: form.hsn.trim(),
@@ -860,8 +861,8 @@ export default function ProductEditorModal({
               description="Update prices, tax, HSN and available stock for this exact record."
             >
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <TextField label="Selling Price" type="number" min="0" step="0.01" required value={form.price} onChange={(value) => setField("price", value)} />
-                <TextField label="Wrong/Defective Returns Price" type="number" min="0" step="0.01" value={form.wrongDefectiveReturnsPrice} onChange={(value) => setField("wrongDefectiveReturnsPrice", value)} />
+                <TextField label="Selling Price" type="number" min="0" step="1" required disabled value={form.price} onChange={(value) => setField("price", value)} help="Automatically follows the ₹191–₹195 variant cycle." />
+                <TextField label="Wrong/Defective Return Discount (₹)" type="number" min="0" step="1" disabled value={form.wrongDefectiveReturnsPrice} onChange={(value) => setField("wrongDefectiveReturnsPrice", value)} help="Fixed at ₹2 for every record." />
                 <TextField label="MRP" type="number" min="0" step="0.01" required value={form.mrp} onChange={(value) => setField("mrp", value)} />
                 <TextField label="GST %" type="number" min="0" step="0.01" required value={form.gst} onChange={(value) => setField("gst", value)} />
                 <TextField label="HSN" value={form.hsn} onChange={(value) => setField("hsn", value)} />

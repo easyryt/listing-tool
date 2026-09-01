@@ -1,5 +1,9 @@
+import type { UseFormRegister } from "react-hook-form";
+
+import type { FormData } from "./ProductCard";
+
 type Props = {
-  register: any;
+  register: UseFormRegister<FormData>;
 };
 
 export default function PricingDetails({
@@ -18,16 +22,40 @@ export default function PricingDetails({
 
         <div>
           <label className="mb-2 block text-sm font-medium">
-            Meesho Price
+            Meesho Price (V1)
           </label>
 
           <input
             type="number"
+            readOnly
             {...register("price", {
               valueAsNumber: true,
             })}
-            className="w-full rounded-xl border border-slate-300 px-4 py-3"
+            className="w-full cursor-not-allowed rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-600"
           />
+          <p className="mt-1.5 text-xs text-slate-500">
+            Variant prices cycle automatically from ₹191 to ₹195.
+          </p>
+        </div>
+
+        {/* Wrong/Defective Return Discount */}
+
+        <div>
+          <label className="mb-2 block text-sm font-medium">
+            Wrong/Defective Return Discount (₹)
+          </label>
+
+          <input
+            type="number"
+            readOnly
+            {...register("wrongDefectiveReturnsPrice", {
+              valueAsNumber: true,
+            })}
+            className="w-full cursor-not-allowed rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-600"
+          />
+          <p className="mt-1.5 text-xs text-slate-500">
+            Fixed at ₹2 for every parent and variant.
+          </p>
         </div>
 
         {/* MRP */}

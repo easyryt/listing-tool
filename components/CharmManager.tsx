@@ -3,6 +3,7 @@
 import {
   ArrowLeft,
   Check,
+  Copy,
   Database,
   Download,
   Edit3,
@@ -29,6 +30,10 @@ import { useRouter } from "next/navigation";
 
 import type { Product as ProductFormProduct } from "@/components/ProductForm/ProductCard";
 import { exportExcel } from "@/lib/excel";
+import {
+  FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  getVariantPrice,
+} from "@/lib/pricing";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -107,6 +112,17 @@ type EditableField =
   | "image3"
   | "image4";
 
+type ImageField = Extract<
+  EditableField,
+  "image1" | "image2" | "image3" | "image4"
+>;
+
+const IMAGE_FIELDS: ImageField[] = ["image1", "image2", "image3", "image4"];
+
+function isImageField(field: EditableField): field is ImageField {
+  return IMAGE_FIELDS.includes(field as ImageField);
+}
+
 type FieldSpec = {
   key: EditableField;
   label: string;
@@ -167,8 +183,9 @@ const FIELD_GROUPS: FieldGroup[] = [
       { key: "price", label: "Price", number: true },
       {
         key: "wrongDefectiveReturnsPrice",
-        label: "Wrong/Defective Return Price",
+        label: "Wrong/Defective Return Discount (₹)",
         number: true,
+        locked: true,
       },
       { key: "mrp", label: "MRP", number: true },
       { key: "gst", label: "GST", number: true },
@@ -313,6 +330,9 @@ function charmSku(value: string) {
 
 function createDraft(product: Product): CharmDraft {
   const sku = charmSku(product.sku);
+  const variantNumber = product.parentId
+    ? product.variantNumber ?? product.version
+    : 1;
 
   return {
     ...product,
@@ -321,6 +341,8 @@ function createDraft(product: Product): CharmDraft {
     designName: charmDesignName(product.designName),
     sku,
     styleId: sku,
+    price: getVariantPrice(variantNumber),
+    wrongDefectiveReturnsPrice: FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
     sourceProductId: product.id,
     sourceKind: product.parentId ? "variant" : "parent",
     sourceVariantNumber: product.variantNumber,
@@ -370,6 +392,8 @@ function updateField<T extends EditableRow>(row: T, field: EditableField, value:
 function rowPayload(row: EditableRow) {
   const payload: Record<string, unknown> = {};
   for (const field of EDITABLE_FIELDS) payload[field] = row[field];
+  payload.wrongDefectiveReturnsPrice =
+    FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT;
   payload.styleId = row.sku;
   payload.models = row.models;
   return payload;
@@ -434,7 +458,18 @@ export default function CharmManager({
         );
         const loadedCharms = (charmsResult.charms ?? []).map((charm) => {
           const sku = charmSku(charm.sku);
-          return { ...charm, sku, styleId: sku };
+          const variantNumber =
+            charm.sourceKind === "variant"
+              ? charm.sourceVariantNumber ?? charm.version
+              : 1;
+          return {
+            ...charm,
+            sku,
+            styleId: sku,
+            price: getVariantPrice(variantNumber),
+            wrongDefectiveReturnsPrice:
+              FIXED_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+          };
         });
 
         setRootProduct(root);
@@ -746,6 +781,46 @@ export default function CharmManager({
     );
   };
 
+  const applyImageToAll = (
+    mode: WorkspaceTab,
+    sourceRow: EditableRow,
+    field: ImageField,
+    value: string,
+  ) => {
+    const imageUrl = value.trim();
+    if (!imageUrl) {
+      setError(`Paste an ${FIELD_GROUPS.at(-1)?.fields.find((item) => item.key === field)?.label ?? "image URL"} before applying it.`);
+      return;
+    }
+
+    const targetRows: EditableRow[] = mode === "drafts" ? drafts : charms;
+    if (!targetRows.length) return;
+
+    setTableEdits((current) => {
+      const next = { ...current };
+
+      for (const row of targetRows) {
+        const baseRow =
+          row.id === sourceRow.id
+            ? sourceRow
+            : current[row.id] ?? row;
+        next[row.id] = updateField(cloneRow(baseRow), field, imageUrl);
+      }
+
+      return next;
+    });
+
+    setEditor((current) =>
+      current && current.mode === mode && current.row.id === sourceRow.id
+        ? { ...current, row: updateField(current.row, field, imageUrl) }
+        : current,
+    );
+    setError(null);
+    setMessage(
+      `${FIELD_GROUPS.at(-1)?.fields.find((item) => item.key === field)?.label ?? "Image URL"} applied to all ${targetRows.length} ${mode === "drafts" ? "draft variants" : "stored variants"}. Review and save the changed rows.`,
+    );
+  };
+
   const applyDraftChanges = () => {
     if (!editor || editor.mode !== "drafts") return;
     setDrafts((current) =>
@@ -895,6 +970,9 @@ export default function CharmManager({
               onFieldChange={updateTableField}
               onModelsChange={updateTableModels}
               onPreviewImage={(url, label) => setImagePreview({ url, label })}
+              onApplyImageToAll={(row, field, value) =>
+                applyImageToAll(activeTab, row, field, value)
+              }
               onReset={clearTableEdit}
               onApplyDraft={applyTableDraft}
               onSaveStored={(row) => void saveStoredCharm(row as Charm)}
@@ -927,6 +1005,9 @@ export default function CharmManager({
           onFieldChange={updateEditorField}
           onModelsChange={updateEditorModels}
           onPreviewImage={(url, label) => setImagePreview({ url, label })}
+          onApplyImageToAll={(field, value) =>
+            applyImageToAll(editor.mode, editor.row, field, value)
+          }
           onApplyDraft={applyDraftChanges}
           onStoreDraft={() => void storeDraft(editor.row as CharmDraft)}
           onSaveStored={() => void saveStoredCharm(editor.row as Charm)}
@@ -984,6 +1065,7 @@ function CharmTable({
   onFieldChange,
   onModelsChange,
   onPreviewImage,
+  onApplyImageToAll,
   onReset,
   onApplyDraft,
   onSaveStored,
@@ -1001,6 +1083,11 @@ function CharmTable({
   onFieldChange: (row: EditableRow, field: EditableField, value: string) => void;
   onModelsChange: (row: EditableRow, value: string) => void;
   onPreviewImage: (url: string, label: string) => void;
+  onApplyImageToAll: (
+    row: EditableRow,
+    field: ImageField,
+    value: string,
+  ) => void;
   onReset: (id: string) => void;
   onApplyDraft: (row: EditableRow) => void;
   onSaveStored: (row: EditableRow) => void;
@@ -1093,6 +1180,9 @@ function CharmTable({
                     row={workingRow}
                     onChange={(value) => onFieldChange(row, productNameField.key, value)}
                     onPreviewImage={onPreviewImage}
+                    onApplyImageToAll={(field, value) =>
+                      onApplyImageToAll(row, field, value)
+                    }
                     className={`sticky ${productLeft} z-30 bg-white shadow-[4px_0_8px_-6px_rgba(15,23,42,0.45)] group-hover:bg-[#fafdff]`}
                   />
 
@@ -1114,6 +1204,9 @@ function CharmTable({
                       row={workingRow}
                       onChange={(value) => onFieldChange(row, field.key, value)}
                       onPreviewImage={onPreviewImage}
+                      onApplyImageToAll={(imageField, value) =>
+                        onApplyImageToAll(row, imageField, value)
+                      }
                     />
                   ))}
 
@@ -1234,16 +1327,19 @@ function EditableTableCell({
   row,
   onChange,
   onPreviewImage,
+  onApplyImageToAll,
   className = "",
 }: {
   field: FieldSpec;
   row: EditableRow;
   onChange: (value: string) => void;
   onPreviewImage: (url: string, label: string) => void;
+  onApplyImageToAll: (field: ImageField, value: string) => void;
   className?: string;
 }) {
   const value = String(row[field.key] ?? "");
-  const isImage = field.key.startsWith("image");
+  const imageField = isImageField(field.key) ? field.key : null;
+  const isImage = imageField !== null;
   const useTextarea = Boolean(field.multiline);
 
   return (
@@ -1289,6 +1385,17 @@ function EditableTableCell({
           className={`${tableInputClass} ${field.locked ? tableLockedClass : ""}`}
         />
       )}
+      {isImage && (
+        <button
+          type="button"
+          onClick={() => onApplyImageToAll(imageField, value)}
+          disabled={!value.trim()}
+          className="mt-2 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2 text-[10px] font-bold text-blue-700 transition hover:border-blue-300 hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
+        >
+          <Copy size={12} />
+          Apply to all variants
+        </button>
+      )}
     </td>
   );
 }
@@ -1300,6 +1407,7 @@ function EditDrawer({
   onFieldChange,
   onModelsChange,
   onPreviewImage,
+  onApplyImageToAll,
   onApplyDraft,
   onStoreDraft,
   onSaveStored,
@@ -1310,6 +1418,7 @@ function EditDrawer({
   onFieldChange: (field: EditableField, value: string) => void;
   onModelsChange: (value: string) => void;
   onPreviewImage: (url: string, label: string) => void;
+  onApplyImageToAll: (field: ImageField, value: string) => void;
   onApplyDraft: () => void;
   onStoreDraft: () => void;
   onSaveStored: () => void;
@@ -1348,6 +1457,7 @@ function EditDrawer({
               row={editor.row}
               onChange={onFieldChange}
               onPreviewImage={onPreviewImage}
+              onApplyImageToAll={onApplyImageToAll}
             />
           ))}
         </div>
@@ -1378,11 +1488,13 @@ function EditorGroup({
   row,
   onChange,
   onPreviewImage,
+  onApplyImageToAll,
 }: {
   group: FieldGroup;
   row: EditableRow;
   onChange: (field: EditableField, value: string) => void;
   onPreviewImage: (url: string, label: string) => void;
+  onApplyImageToAll: (field: ImageField, value: string) => void;
 }) {
   const isImages = group.title === "Images";
   const images = [row.image1, row.image2, row.image3, row.image4];
@@ -1426,7 +1538,57 @@ function EditorGroup({
           })}
         </div>
       )}
-      <div className="grid gap-3 sm:grid-cols-2">{group.fields.map((field) => <label key={field.key} className={field.multiline ? "sm:col-span-2" : ""}><span className="mb-1.5 block text-[11px] font-bold text-slate-600">{field.label}</span>{field.multiline ? <textarea rows={field.key === "description" ? 4 : 2} value={String(row[field.key] ?? "")} readOnly={field.locked} onChange={(event) => onChange(field.key, event.target.value)} placeholder={field.placeholder} className={`${textareaClass} ${field.locked ? lockedClass : ""}`} /> : <input type={field.number ? "number" : "text"} value={String(row[field.key] ?? "")} readOnly={field.locked} onChange={(event) => onChange(field.key, event.target.value)} placeholder={field.placeholder} className={`${inputClass} ${field.locked ? lockedClass : ""}`} />}</label>)}</div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {group.fields.map((field) => {
+          const imageField = isImageField(field.key) ? field.key : null;
+          const value = String(row[field.key] ?? "");
+
+          return (
+            <div
+              key={field.key}
+              className={field.multiline ? "sm:col-span-2" : ""}
+            >
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <label className="text-[11px] font-bold text-slate-600">
+                  {field.label}
+                </label>
+                {imageField && (
+                  <button
+                    type="button"
+                    onClick={() => onApplyImageToAll(imageField, value)}
+                    disabled={!value.trim()}
+                    className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-bold text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-50 disabled:text-slate-400"
+                  >
+                    <Copy size={11} />
+                    Apply to all variants
+                  </button>
+                )}
+              </div>
+              {field.multiline ? (
+                <textarea
+                  rows={field.key === "description" ? 4 : 2}
+                  value={value}
+                  readOnly={field.locked}
+                  onChange={(event) => onChange(field.key, event.target.value)}
+                  aria-label={field.label}
+                  placeholder={field.placeholder}
+                  className={`${textareaClass} ${field.locked ? lockedClass : ""}`}
+                />
+              ) : (
+                <input
+                  type={field.number ? "number" : "text"}
+                  value={value}
+                  readOnly={field.locked}
+                  onChange={(event) => onChange(field.key, event.target.value)}
+                  aria-label={field.label}
+                  placeholder={field.placeholder}
+                  className={`${inputClass} ${field.locked ? lockedClass : ""}`}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
