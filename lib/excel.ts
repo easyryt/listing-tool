@@ -6,7 +6,7 @@ import type {
 import { saveAs } from "file-saver";
 
 import { COLUMN } from "./columnMap";
-import { getWrongDefectiveReturnPrice } from "./pricing";
+import { getWrongDefectiveReturnDiscount } from "./pricing";
 import { generateSKU } from "./sku";
 
 import type { Product } from "../components/ProductForm/ProductCard";
@@ -116,9 +116,10 @@ export async function exportExcel(
       row.getCell(COLUMN.VARIATION).value = product.size;
       row.getCell(COLUMN.PRICE).value = product.price;
 
-      row.getCell(COLUMN.WRONG_DEFECTIVE_RETURN_PRICE).value =
-        getWrongDefectiveReturnPrice(
-          product.price,
+      // This field is edited and stored as the exact value the user wants in
+      // Column G. Export it unchanged instead of deriving it from Meesho Price.
+      row.getCell(COLUMN.WRONG_DEFECTIVE_RETURN_DISCOUNT).value =
+        getWrongDefectiveReturnDiscount(
           product.wrongDefectiveReturnsPrice,
         );
 

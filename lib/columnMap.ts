@@ -2,7 +2,7 @@ export const COLUMN = {
   PRODUCT_NAME: "D",
   VARIATION: "E",
   PRICE: "F",
-  WRONG_DEFECTIVE_RETURN_PRICE: "G",
+  WRONG_DEFECTIVE_RETURN_DISCOUNT: "G",
   MRP: "H",
   GST: "I",
   HSN: "J",

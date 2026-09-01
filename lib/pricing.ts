@@ -18,24 +18,6 @@ export function getWrongDefectiveReturnDiscount(value: unknown) {
     : DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT;
 }
 
-export function getWrongDefectiveReturnPrice(
-  meeshoPrice: unknown,
-  discount: unknown,
-) {
-  const numericPrice = Number(meeshoPrice);
-
-  if (!Number.isFinite(numericPrice) || numericPrice < 0) {
-    return 0;
-  }
-
-  const numericDiscount = getWrongDefectiveReturnDiscount(discount);
-
-  return Math.max(
-    0,
-    Math.round((numericPrice - numericDiscount) * 100) / 100,
-  );
-}
-
 const VARIANT_PRICE_CYCLE = [191, 192, 193, 194, 195] as const;
 
 export function getVariantPrice(variantNumber: unknown) {
