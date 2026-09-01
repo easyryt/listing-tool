@@ -183,7 +183,7 @@ const FIELD_GROUPS: FieldGroup[] = [
       { key: "designCode", label: "Design Code" },
       { key: "designNumber", label: "Design Number", locked: true },
       { key: "sku", label: "SKU", multiline: true },
-      { key: "styleId", label: "Style ID" },
+      { key: "styleId", label: "Style ID", locked: true },
       { key: "printType", label: "Print Type" },
       { key: "finish", label: "Finish" },
       { key: "version", label: "Version" },
@@ -304,12 +304,15 @@ function charmSku(value: string) {
 }
 
 function createDraft(product: Product): CharmDraft {
+  const sku = charmSku(product.sku);
+
   return {
     ...product,
     id: `draft-${product.id}`,
     productName: charmTitle(product.productName),
     designName: charmDesignName(product.designName),
-    sku: charmSku(product.sku),
+    sku,
+    styleId: sku,
     sourceProductId: product.id,
     sourceKind: product.parentId ? "variant" : "parent",
     sourceVariantNumber: product.variantNumber,
@@ -338,6 +341,14 @@ function cloneRow<T extends EditableRow>(row: T): T {
 }
 
 function updateField<T extends EditableRow>(row: T, field: EditableField, value: string): T {
+  if (field === "sku") {
+    return {
+      ...row,
+      sku: value,
+      styleId: value,
+    } as T;
+  }
+
   return {
     ...row,
     [field]: NUMBER_FIELDS.has(field)
@@ -351,6 +362,7 @@ function updateField<T extends EditableRow>(row: T, field: EditableField, value:
 function rowPayload(row: EditableRow) {
   const payload: Record<string, unknown> = {};
   for (const field of EDITABLE_FIELDS) payload[field] = row[field];
+  payload.styleId = row.sku;
   payload.models = row.models;
   return payload;
 }
@@ -411,7 +423,10 @@ export default function CharmManager({
         const charmsResult = await apiRequest<CharmsResponse>(
           `/products/${encodeURIComponent(root.id)}/charms`,
         );
-        const loadedCharms = charmsResult.charms ?? [];
+        const loadedCharms = (charmsResult.charms ?? []).map((charm) => ({
+          ...charm,
+          styleId: charm.sku,
+        }));
 
         setRootProduct(root);
         setSources([...sourceMap.values()]);
