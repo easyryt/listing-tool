@@ -296,11 +296,17 @@ function charmDesignName(value: string) {
 
 function charmSku(value: string) {
   const sku = String(value || "").trim().toUpperCase();
-  if (!sku || /\bWITH[\s-]+CHRM(?:S)?\b/i.test(sku)) return sku;
+  if (!sku) return sku;
+
+  const charmMarker = /\bWITH[\s-]+(?:CHARMS?|CHRMS?)\b/i;
+  if (charmMarker.test(sku)) {
+    return sku.replace(charmMarker, "WITH CHARMS");
+  }
+
   const versionMatch = sku.match(/-(\d+(?:\.\d+)*\.V\d+)$/i);
   return versionMatch?.index !== undefined
-    ? `${sku.slice(0, versionMatch.index)}-WITH CHRM${sku.slice(versionMatch.index)}`
-    : `${sku}-WITH CHRM`;
+    ? `${sku.slice(0, versionMatch.index)}-WITH CHARMS${sku.slice(versionMatch.index)}`
+    : `${sku}-WITH CHARMS`;
 }
 
 function createDraft(product: Product): CharmDraft {
@@ -423,10 +429,10 @@ export default function CharmManager({
         const charmsResult = await apiRequest<CharmsResponse>(
           `/products/${encodeURIComponent(root.id)}/charms`,
         );
-        const loadedCharms = (charmsResult.charms ?? []).map((charm) => ({
-          ...charm,
-          styleId: charm.sku,
-        }));
+        const loadedCharms = (charmsResult.charms ?? []).map((charm) => {
+          const sku = charmSku(charm.sku);
+          return { ...charm, sku, styleId: sku };
+        });
 
         setRootProduct(root);
         setSources([...sourceMap.values()]);
@@ -468,7 +474,7 @@ export default function CharmManager({
       charms.map((charm) => charm.sourceProductId).filter((id): id is string => Boolean(id)),
     );
     for (const source of sources) {
-      if (charms.some((charm) => charm.sku.toUpperCase() === charmSku(source.sku))) ids.add(source.id);
+      if (charms.some((charm) => charmSku(charm.sku) === charmSku(source.sku))) ids.add(source.id);
     }
     return ids;
   }, [charms, sources]);
