@@ -1,3 +1,8 @@
+import type {
+  CellFormulaValue,
+  CellSharedFormulaValue,
+  Worksheet,
+} from "exceljs";
 import { saveAs } from "file-saver";
 
 import { COLUMN } from "./columnMap";
@@ -10,6 +15,43 @@ type ExportExcelOptions = {
   fileName?: string;
   preserveProductSku?: boolean;
 };
+
+function materializeSharedFormulas(worksheet: Worksheet) {
+  const formulas: Array<{
+    address: string;
+    formula: string;
+    result?: CellFormulaValue["result"];
+  }> = [];
+
+  // Capture every translated formula before changing any shared-formula master.
+  worksheet.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      if (!cell.formulaType) {
+        return;
+      }
+
+      const value = cell.value as
+        | CellFormulaValue
+        | CellSharedFormulaValue;
+
+      formulas.push({
+        address: cell.address,
+        formula: cell.formula,
+        result: value.result,
+      });
+    });
+  });
+
+  for (const { address, formula, result } of formulas) {
+    const value: CellFormulaValue = { formula };
+
+    if (result !== undefined) {
+      value.result = result;
+    }
+
+    worksheet.getCell(address).value = value;
+  }
+}
 
 export async function exportExcel(
   products: Product[] = [],
@@ -37,6 +79,10 @@ export async function exportExcel(
   if (!worksheet) {
     throw new Error("No worksheet found in the Excel template.");
   }
+
+  // Large exports can overwrite a shared-formula master while leaving one of
+  // its unused clones behind. Standalone formulas keep every template row valid.
+  materializeSharedFormulas(worksheet);
 
   let rowNumber = 6;
 

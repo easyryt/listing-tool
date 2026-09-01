@@ -869,6 +869,14 @@ export default function CharmManager({
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
+                onClick={() => router.push("/charms/batch")}
+                className={secondaryButtonClass}
+              >
+                <Layers3 size={15} />
+                Charm Batch
+              </button>
+              <button
+                type="button"
                 onClick={() => void load(true)}
                 disabled={refreshing}
                 className={secondaryButtonClass}

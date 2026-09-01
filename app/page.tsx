@@ -504,6 +504,14 @@ export default function ProductsDashboard() {
               </button>
               <button
                 type="button"
+                onClick={() => router.push("/charms/batch")}
+                className="inline-flex h-10 items-center gap-2 rounded-xl border border-fuchsia-200 bg-fuchsia-50 px-4 text-sm font-semibold text-fuchsia-700 transition hover:border-fuchsia-300 hover:bg-fuchsia-100"
+              >
+                <Layers3 className="h-4 w-4" />
+                Charm batch
+              </button>
+              <button
+                type="button"
                 onClick={() => router.push("/products")}
                 className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800"
               >
