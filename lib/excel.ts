@@ -1,6 +1,7 @@
 import { saveAs } from "file-saver";
 
 import { COLUMN } from "./columnMap";
+import { getWrongDefectiveReturnDiscount } from "./pricing";
 import { generateSKU } from "./sku";
 
 import type { Product } from "../components/ProductForm/ProductCard";
@@ -69,13 +70,10 @@ export async function exportExcel(
       row.getCell(COLUMN.VARIATION).value = product.size;
       row.getCell(COLUMN.PRICE).value = product.price;
 
-      if (
-        typeof product.wrongDefectiveReturnsPrice === "number" &&
-        Number.isFinite(product.wrongDefectiveReturnsPrice)
-      ) {
-        row.getCell(COLUMN.RETURN_DISCOUNT).value =
-          product.wrongDefectiveReturnsPrice;
-      }
+      row.getCell(COLUMN.RETURN_DISCOUNT).value =
+        getWrongDefectiveReturnDiscount(
+          product.wrongDefectiveReturnsPrice,
+        );
 
       row.getCell(COLUMN.MRP).value = product.mrp;
       row.getCell(COLUMN.GST).value = product.gst;

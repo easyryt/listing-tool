@@ -30,6 +30,7 @@ import {
 import {
   DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
+  getWrongDefectiveReturnDiscount,
 } from "@/lib/pricing";
 
 import AiProductScanner, {
@@ -1288,6 +1289,11 @@ export default function ProductCard() {
           price:
             getVariantPrice(1),
 
+          wrongDefectiveReturnsPrice:
+            getWrongDefectiveReturnDiscount(
+              currentValues.wrongDefectiveReturnsPrice,
+            ),
+
           id:
             editingProductId ??
             createLocalId(),
@@ -1390,6 +1396,10 @@ export default function ProductCard() {
       reset({
         ...DEFAULT_VALUES,
         ...product,
+        wrongDefectiveReturnsPrice:
+          getWrongDefectiveReturnDiscount(
+            product.wrongDefectiveReturnsPrice,
+          ),
         groupId:
           product.groupId,
         version: "1",
@@ -1827,6 +1837,11 @@ export default function ProductCard() {
               price:
                 getVariantPrice(
                   versionNumber,
+                ),
+
+              wrongDefectiveReturnsPrice:
+                getWrongDefectiveReturnDiscount(
+                  parentProduct.wrongDefectiveReturnsPrice,
                 ),
 
               productName:

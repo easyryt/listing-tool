@@ -31,8 +31,8 @@ import { useRouter } from "next/navigation";
 import type { Product as ProductFormProduct } from "@/components/ProductForm/ProductCard";
 import { exportExcel } from "@/lib/excel";
 import {
-  DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
+  getWrongDefectiveReturnDiscount,
 } from "@/lib/pricing";
 
 const API_BASE_URL = (
@@ -342,8 +342,9 @@ function createDraft(product: Product): CharmDraft {
     styleId: sku,
     price: getVariantPrice(variantNumber),
     wrongDefectiveReturnsPrice:
-      product.wrongDefectiveReturnsPrice ??
-      DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+      getWrongDefectiveReturnDiscount(
+        product.wrongDefectiveReturnsPrice,
+      ),
     sourceProductId: product.id,
     sourceKind: product.parentId ? "variant" : "parent",
     sourceVariantNumber: product.variantNumber,
@@ -467,8 +468,9 @@ export default function CharmManager({
             styleId: sku,
             price: getVariantPrice(variantNumber),
             wrongDefectiveReturnsPrice:
-              charm.wrongDefectiveReturnsPrice ??
-              DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+              getWrongDefectiveReturnDiscount(
+                charm.wrongDefectiveReturnsPrice,
+              ),
           };
         });
 
@@ -1215,7 +1217,7 @@ function CharmTable({
                       onChange={(value) => onFieldChange(row, field.key, value)}
                       onPreviewImage={onPreviewImage}
                       onApplyImageToAll={(imageField, value) =>
-                        onApplyImageToAll(row, imageField, value)
+                        onApplyImageToAll(workingRow, imageField, value)
                       }
                       showApplyImageToAll={row.id === applyImageSourceId}
                     />

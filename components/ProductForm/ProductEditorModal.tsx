@@ -16,8 +16,8 @@ import {
 
 import { PHONE_MODELS } from "@/lib/models";
 import {
-  DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
+  getWrongDefectiveReturnDiscount,
 } from "@/lib/pricing";
 import {
   BRANDS,
@@ -155,8 +155,9 @@ function productToForm(product: Product): EditorForm {
     type: text(product.type),
     price: numberText(getVariantPrice(variantNumber)),
     wrongDefectiveReturnsPrice: numberText(
-      product.wrongDefectiveReturnsPrice ??
-        DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+      getWrongDefectiveReturnDiscount(
+        product.wrongDefectiveReturnsPrice,
+      ),
     ),
     mrp: numberText(product.mrp),
     gst: numberText(product.gst),
