@@ -69,7 +69,13 @@ export async function exportExcel(
       row.getCell(COLUMN.VARIATION).value = product.size;
       row.getCell(COLUMN.PRICE).value = product.price;
 
-      // Keep Meesho's formula column unchanged.
+      if (
+        typeof product.wrongDefectiveReturnsPrice === "number" &&
+        Number.isFinite(product.wrongDefectiveReturnsPrice)
+      ) {
+        row.getCell(COLUMN.RETURN_PRICE).value =
+          product.wrongDefectiveReturnsPrice;
+      }
 
       row.getCell(COLUMN.MRP).value = product.mrp;
       row.getCell(COLUMN.GST).value = product.gst;

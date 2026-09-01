@@ -2,7 +2,8 @@ export const COLUMN = {
   PRODUCT_NAME: "D",
   VARIATION: "E",
   PRICE: "F",
-  RETURN_PRICE: "G", // Formula - don't overwrite
+  // Keep the template formula when no custom return price is provided.
+  RETURN_PRICE: "G",
   MRP: "H",
   GST: "I",
   HSN: "J",
