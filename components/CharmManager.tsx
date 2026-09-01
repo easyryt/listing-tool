@@ -31,6 +31,7 @@ import { useRouter } from "next/navigation";
 import type { Product as ProductFormProduct } from "@/components/ProductForm/ProductCard";
 import { exportExcel } from "@/lib/excel";
 import {
+  DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
   getWrongDefectiveReturnDiscount,
 } from "@/lib/pricing";
@@ -341,10 +342,7 @@ function createDraft(product: Product): CharmDraft {
     sku,
     styleId: sku,
     price: getVariantPrice(variantNumber),
-    wrongDefectiveReturnsPrice:
-      getWrongDefectiveReturnDiscount(
-        product.wrongDefectiveReturnsPrice,
-      ),
+    wrongDefectiveReturnsPrice: DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
     sourceProductId: product.id,
     sourceKind: product.parentId ? "variant" : "parent",
     sourceVariantNumber: product.variantNumber,

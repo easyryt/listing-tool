@@ -6,7 +6,7 @@ import type {
 import { saveAs } from "file-saver";
 
 import { COLUMN } from "./columnMap";
-import { getWrongDefectiveReturnDiscount } from "./pricing";
+import { getWrongDefectiveReturnPrice } from "./pricing";
 import { generateSKU } from "./sku";
 
 import type { Product } from "../components/ProductForm/ProductCard";
@@ -116,8 +116,9 @@ export async function exportExcel(
       row.getCell(COLUMN.VARIATION).value = product.size;
       row.getCell(COLUMN.PRICE).value = product.price;
 
-      row.getCell(COLUMN.RETURN_DISCOUNT).value =
-        getWrongDefectiveReturnDiscount(
+      row.getCell(COLUMN.WRONG_DEFECTIVE_RETURN_PRICE).value =
+        getWrongDefectiveReturnPrice(
+          product.price,
           product.wrongDefectiveReturnsPrice,
         );
 
