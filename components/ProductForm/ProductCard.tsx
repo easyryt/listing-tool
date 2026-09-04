@@ -27,6 +27,7 @@ import { useRouter } from "next/navigation";
 import {
   generateSKU,
 } from "@/lib/sku";
+import { applyProductBrand, getBrandSupplyDetails } from "@/lib/brands";
 import {
   DEFAULT_PRODUCT_PRICE,
   DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
@@ -166,13 +167,7 @@ const DEFAULT_VALUES: FormData = {
 
   country: "India",
 
-  manufacturer: "Mobiro",
-  manufacturerAddress: "",
-  manufacturerPincode: "",
-
-  packer: "Mobiro",
-  packerAddress: "",
-  packerPincode: "",
+  ...getBrandSupplyDetails("Mobiro"),
 
   importer: "Not Required",
   importerAddress: "Not Required",
@@ -1334,24 +1329,29 @@ export default function ProductCard() {
         editingProductId
       ) {
         setProducts((current) => {
-          const previousPrice = current.find(
+          const previousParent = current.find(
             (product) => product.id === editingProductId,
-          )?.price;
+          );
 
           return current.map((product) => {
             if (product.id === editingProductId) return productToSave;
 
             if (
               product.parentId === editingProductId &&
-              (product.variantType ?? "standard") === "standard" &&
-              previousPrice !== productToSave.price
+              (product.variantType ?? "standard") === "standard"
             ) {
               return {
-                ...product,
-                price: getVariantPrice(
-                  productToSave.price,
-                  product.variantNumber ?? product.version,
-                ),
+                ...(previousParent?.brand !== productToSave.brand
+                  ? applyProductBrand(product, productToSave.brand)
+                  : product),
+                ...(previousParent?.price !== productToSave.price
+                  ? {
+                      price: getVariantPrice(
+                        productToSave.price,
+                        product.variantNumber ?? product.version,
+                      ),
+                    }
+                  : {}),
               };
             }
 
@@ -2768,6 +2768,29 @@ export default function ProductCard() {
           field,
           value,
         ) => {
+          if (field === "brand") {
+            setProducts((current) => {
+              const parent = current.find(
+                (product) => product.id === productId && !product.parentId,
+              );
+              return current.map((product) =>
+                product.id === productId ||
+                (parent && product.parentId === parent.id &&
+                  (product.variantType ?? "standard") === "standard")
+                  ? applyProductBrand(product, value)
+                  : product,
+              );
+            });
+            if (editingProductId === productId) {
+              setValue("brand", value, { shouldDirty: true });
+              const details = getBrandSupplyDetails(value);
+              for (const key of Object.keys(details) as Array<keyof typeof details>) {
+                setValue(key, details[key], { shouldDirty: true });
+              }
+            }
+            return;
+          }
+
           if (field === "price") {
             const price = Number(value || 0);
             if (!Number.isFinite(price) || price < 0) return;

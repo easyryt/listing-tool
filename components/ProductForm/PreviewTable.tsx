@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { BRANDS } from "@/lib/brands";
 import { getWrongDefectiveReturnDiscount } from "@/lib/pricing";
 
 import type {
@@ -952,20 +953,7 @@ function ParentGroup({
           multiline
         />
 
-        <EditableCell
-          value={
-            parent.brand
-          }
-          onChange={(
-            value,
-          ) =>
-            onUpdate?.(
-              parent.id,
-              "brand",
-              value,
-            )
-          }
-        />
+        <BrandCell product={parent} onUpdate={onUpdate} />
 
         <EditableCell
           value={
@@ -1814,18 +1802,7 @@ function VariantRow({
         multiline
       />
 
-      <EditableCell
-        value={
-          product.brand
-        }
-        onChange={(value) =>
-          onUpdate?.(
-            product.id,
-            "brand",
-            value,
-          )
-        }
-      />
+      <BrandCell product={product} onUpdate={onUpdate} />
 
       <EditableCell
         value={
@@ -2354,6 +2331,28 @@ function VariantRow({
 | Model Cell
 |--------------------------------------------------------------------------
 */
+
+function BrandCell({ product, onUpdate }: {
+  product: Product;
+  onUpdate?: Props["onUpdateProduct"];
+}) {
+  const brands = BRANDS.some((brand) => brand === product.brand)
+    ? BRANDS
+    : [...BRANDS, product.brand];
+
+  return (
+    <Cell>
+      <select
+        aria-label={`Brand for ${product.productName}`}
+        value={product.brand}
+        onChange={(event) => onUpdate?.(product.id, "brand", event.target.value)}
+        className="min-w-[150px] rounded-lg border border-slate-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      >
+        {brands.map((brand) => <option key={brand} value={brand}>{brand || "Select brand"}</option>)}
+      </select>
+    </Cell>
+  );
+}
 
 function ModelCell({
   product,

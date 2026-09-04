@@ -4,9 +4,7 @@ import listingOptions from "./listing-options.json";
 // Brand
 // =========================
 
-export const BRANDS = [
-  "Mobiro",
-];
+export { BRANDS } from "./brands";
 
 // =========================
 // Category

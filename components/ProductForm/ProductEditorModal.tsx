@@ -15,6 +15,7 @@ import {
 } from "react";
 
 import { PHONE_MODELS } from "@/lib/models";
+import { applyProductBrand } from "@/lib/brands";
 import {
   DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
@@ -509,6 +510,14 @@ export default function ProductEditorModal({
         await Promise.all(
           standardVariants.map((variant) =>
             updateProduct(variant.id, {
+              ...((payload.brand !== activeProduct.brand ||
+                (applySharedFields && payload.brand !== variant.brand))
+                ? applyProductBrand({
+                    brand: variant.brand,
+                    sku: variant.sku,
+                    styleId: variant.styleId,
+                  }, payload.brand)
+                : {}),
               ...sharedPayload,
               ...(payload.price !== activeProduct.price
                 ? {
@@ -658,21 +667,12 @@ export default function ProductEditorModal({
                   onChange={(value) => setField("description", value)}
                   className="lg:col-span-2"
                 />
-                <TextField
+                <SelectField
                   label="Brand"
                   value={form.brand}
-                  list="product-editor-brands"
+                  options={BRANDS}
                   onChange={(value) => {
-                    const previousBrand = form.brand;
-                    setForm((current) => ({
-                      ...current,
-                      brand: value,
-                      manufacturer:
-                        !current.manufacturer ||
-                        current.manufacturer === previousBrand
-                          ? value
-                          : current.manufacturer,
-                    }));
+                    setForm((current) => applyProductBrand(current, value));
                   }}
                 />
                 <SelectField
@@ -972,7 +972,7 @@ export default function ProductEditorModal({
                   <span>
                     <strong className="text-slate-800">Apply shared catalog fields to all {standardVariants.length} standard variants</strong>
                     <span className="mt-0.5 block text-slate-400">
-                      Copies brand, category, attributes, tax, models and supply details. Variant titles, SKU, prices, stock and images stay unchanged.
+                      Copies brand, category, attributes, tax, models and supply details. Brand changes also update variant SKU prefixes; titles, prices, stock and images stay unchanged.
                     </span>
                   </span>
                 </label>
@@ -1008,7 +1008,6 @@ export default function ProductEditorModal({
       <datalist id="product-editor-models">
         {PHONE_MODELS.map((model) => <option key={model} value={model} />)}
       </datalist>
-      <Datalist id="product-editor-brands" values={BRANDS} />
       <Datalist id="product-editor-materials" values={MATERIALS} />
       <Datalist id="product-editor-colors" values={COLORS} />
       <Datalist id="product-editor-themes" values={THEMES} />

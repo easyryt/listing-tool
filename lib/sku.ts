@@ -1,12 +1,5 @@
 import { getModelCode } from "./models";
-
-// =====================================
-// Brand Codes
-// =====================================
-
-const BRAND_CODES: Record<string, string> = {
-  Mobiro: "MBRO",
-};
+import { getBrandCode } from "./brands";
 
 // =====================================
 // Category Codes
@@ -47,10 +40,6 @@ const COLOR_CODES: Record<string, string> = {
 // =====================================
 // Helper Functions
 // =====================================
-
-function getBrandCode(brand: string) {
-  return BRAND_CODES[brand.trim()] ?? brand.trim().toUpperCase();
-}
 
 function getCategoryCode(category: string) {
   return (

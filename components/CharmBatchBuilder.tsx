@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 
 import type { Product } from "@/components/ProductForm/ProductCard";
 import { exportExcel } from "@/lib/excel";
+import { charmVariantNumber, groupCharmsByFamily, isParentCharm } from "@/lib/charm-order";
 import { PHONE_MODELS } from "@/lib/models";
 
 const API_BASE_URL = (
@@ -114,77 +115,8 @@ function formatCurrency(value: unknown) {
     : "₹0";
 }
 
-function charmVariantNumber(charm: Charm) {
-  if (charm.sourceKind === "parent") return 1;
-
-  const sourceVariantNumber = Number(charm.sourceVariantNumber);
-  if (
-    charm.sourceKind === "variant" &&
-    Number.isInteger(sourceVariantNumber) &&
-    sourceVariantNumber >= 2
-  ) {
-    return sourceVariantNumber;
-  }
-
-  const skuMatch = String(charm.sku ?? "").trim().match(/(?:^|[.\-])V(\d+)$/i);
-  if (skuMatch) return Number(skuMatch[1]);
-
-  const legacyVariantNumber = Number(charm.variantNumber);
-  if (Number.isInteger(legacyVariantNumber) && legacyVariantNumber > 0) {
-    return legacyVariantNumber;
-  }
-
-  const versionMatch = String(charm.version ?? "").trim().match(/^V?(\d+)$/i);
-  return versionMatch ? Number(versionMatch[1]) : undefined;
-}
-
-function isParentCharm(charm: Charm) {
-  if (charm.sourceKind === "parent") return true;
-  if (charm.sourceKind === "variant") return false;
-  return charmVariantNumber(charm) === 1;
-}
-
-function charmFamilyKey(charm: Charm) {
-  const designNumber = String(charm.designNumber ?? "").trim().toLocaleLowerCase();
-  if (designNumber) return `design:${designNumber}`;
-
-  const skuFamily = String(charm.sku ?? charm.styleId ?? "")
-    .trim()
-    .replace(/(?:^|[.\-])V\d+$/i, "")
-    .toLocaleLowerCase();
-  if (skuFamily) return `sku:${skuFamily}`;
-
-  return `orphan:${charm.id}`;
-}
-
 function groupCharmFamilies(charms: Charm[]) {
-  const grouped = new Map<string, Charm[]>();
-
-  charms.forEach((charm) => {
-    const key = charmFamilyKey(charm);
-    grouped.set(key, [...(grouped.get(key) ?? []), charm]);
-  });
-
-  return [...grouped.entries()].map(([key, familyItems]): CharmFamily => {
-    const sortedItems = familyItems
-      .map((charm, originalIndex) => ({ charm, originalIndex }))
-      .sort((first, second) => {
-        const firstParent = isParentCharm(first.charm);
-        const secondParent = isParentCharm(second.charm);
-        if (firstParent !== secondParent) return firstParent ? -1 : 1;
-
-        const firstNumber = charmVariantNumber(first.charm);
-        const secondNumber = charmVariantNumber(second.charm);
-        if (firstNumber !== secondNumber) {
-          if (firstNumber === undefined) return 1;
-          if (secondNumber === undefined) return -1;
-          return firstNumber - secondNumber;
-        }
-
-        return first.originalIndex - second.originalIndex;
-      })
-      .map(({ charm }) => charm);
-
+  return groupCharmsByFamily(charms).map(([key, sortedItems]): CharmFamily => {
     const parent = sortedItems.find(isParentCharm);
     const variants = parent
       ? sortedItems.filter((charm) => charm.id !== parent.id)
@@ -349,7 +281,10 @@ export default function CharmBatchBuilder() {
     for (const item of batch) {
       groups.set(item.batchModel, [...(groups.get(item.batchModel) ?? []), item]);
     }
-    return [...groups.entries()];
+    return [...groups.entries()].map(([model, items]): [string, BatchItem[]] => [
+      model,
+      groupCharmsByFamily(items).flatMap(([, family]) => family),
+    ]);
   }, [batch]);
 
   const toggleCharm = (id: string) => {
@@ -467,7 +402,7 @@ export default function CharmBatchBuilder() {
     try {
       setExporting(true);
       setError(null);
-      const products: Product[] = batch.map(
+      const products: Product[] = groupedBatch.flatMap(([, items]) => items).map(
         ({ batchKey: key, batchModel: model, ...charm }) => ({
           ...charm,
           id: key,

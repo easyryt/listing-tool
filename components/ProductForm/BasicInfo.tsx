@@ -12,6 +12,7 @@ import type {
 import { useController } from "react-hook-form";
 
 import { BRANDS, CATEGORIES } from "../../lib/options";
+import { getBrandSupplyDetails } from "@/lib/brands";
 import type { FormData } from "./ProductCard";
 
 type Props = {
@@ -107,7 +108,15 @@ export default function BasicInfo({
         </label>
 
         <select
-          {...register("brand")}
+          aria-label="Brand"
+          {...register("brand", {
+            onChange: (event) => {
+              const details = getBrandSupplyDetails(event.target.value);
+              for (const field of Object.keys(details) as Array<keyof typeof details>) {
+                setValue(field, details[field], { shouldDirty: true, shouldValidate: true });
+              }
+            },
+          })}
           className="w-full rounded-xl border border-slate-300 px-4 py-3"
         >
           {BRANDS.map((item) => (

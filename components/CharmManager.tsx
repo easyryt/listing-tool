@@ -30,6 +30,7 @@ import { useRouter } from "next/navigation";
 
 import type { Product as ProductFormProduct } from "@/components/ProductForm/ProductCard";
 import { exportExcel } from "@/lib/excel";
+import { charmVariantNumber, sortCharmsByVersion } from "@/lib/charm-order";
 import {
   DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getWrongDefectiveReturnDiscount,
@@ -347,11 +348,10 @@ function createDraft(product: Product): CharmDraft {
 
 function sourceLabel(item: Product | EditableRow) {
   const savedKind = "sourceKind" in item ? item.sourceKind : undefined;
-  const savedNumber = "sourceVariantNumber" in item ? item.sourceVariantNumber : undefined;
   const kind = savedKind ?? (item.parentId ? "variant" : "parent");
   return kind === "variant"
-    ? `Variant V${savedNumber ?? item.variantNumber ?? item.version ?? "2"}`
-    : "Parent";
+    ? `Variant V${charmVariantNumber(item) ?? "—"}`
+    : "Parent V1";
 }
 
 function getImage(item: Product | EditableRow) {
@@ -404,9 +404,12 @@ export default function CharmManager({
 }) {
   const router = useRouter();
   const [rootProduct, setRootProduct] = useState<Product | null>(null);
-  const [sources, setSources] = useState<Product[]>([]);
-  const [drafts, setDrafts] = useState<CharmDraft[]>([]);
-  const [charms, setCharms] = useState<Charm[]>([]);
+  const [sourceRows, setSources] = useState<Product[]>([]);
+  const [draftRows, setDrafts] = useState<CharmDraft[]>([]);
+  const [storedRows, setCharms] = useState<Charm[]>([]);
+  const sources = useMemo(() => sortCharmsByVersion(sourceRows), [sourceRows]);
+  const drafts = useMemo(() => sortCharmsByVersion(draftRows), [draftRows]);
+  const charms = useMemo(() => sortCharmsByVersion(storedRows), [storedRows]);
   const [selectedExportIds, setSelectedExportIds] = useState<Set<string>>(new Set());
   const [activeTab, setActiveTab] = useState<WorkspaceTab>("stored");
   const [sourceSearch, setSourceSearch] = useState("");
