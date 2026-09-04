@@ -2607,7 +2607,7 @@ export default function ProductCard() {
             <div className="rounded-2xl border border-blue-100 bg-blue-50/70 px-5 py-4">
               <p className="text-sm font-bold text-slate-900">Final batch review</p>
               <p className="mt-1 text-xs leading-5 text-slate-600">
-                Review and edit every field below. Save each parent with its variants, or export the complete unsaved batch.
+                Review and edit every field below. Use Save Parent + Variants above the table, or export the complete unsaved batch.
               </p>
             </div>
           )}
@@ -2618,7 +2618,7 @@ export default function ProductCard() {
             {activeStep === 1 && (hasOneModel ? `${selectedModel} selected. Continue when ready.` : "Choose exactly one phone model to begin.")}
             {activeStep === 2 && "Required fields: product title, design name and design code."}
             {activeStep === 3 && "Variants are optional. You can continue directly to the batch."}
-            {activeStep === 4 && "Only Save to Database permanently stores these records."}
+            {activeStep === 4 && "Only Save Parent + Variants permanently stores these records."}
           </p>
 
           <div className="flex flex-wrap justify-end gap-2">
@@ -2928,7 +2928,7 @@ export default function ProductCard() {
 
             <p className="mt-1 text-sm text-slate-600">
               Products and variants remain in this local batch until you select
-              <strong> Save to Database</strong>. Saving removes them from this workspace
+              <strong> Save Parent + Variants</strong> above the table. Saving removes them from this workspace
               and makes them available on the Listed Products page.
             </p>
           </div>

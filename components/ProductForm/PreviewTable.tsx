@@ -7,7 +7,6 @@ import {
   Image as ImageIcon,
   Pencil,
   Plus,
-  Save,
   Sparkles,
   Trash2,
   X,
@@ -227,13 +226,6 @@ export default function PreviewTable({
       ),
   );
 
-  const [
-    openImageRows,
-    setOpenImageRows,
-  ] = useState<
-    Set<string>
-  >(new Set());
-
   const toggleParent = (
     id: string,
   ) => {
@@ -267,25 +259,6 @@ export default function PreviewTable({
   const collapseAll = () => {
     setExpandedParents(
       new Set(),
-    );
-  };
-
-  const toggleImages = (
-    id: string,
-  ) => {
-    setOpenImageRows(
-      (current) => {
-        const next =
-          new Set(current);
-
-        if (next.has(id)) {
-          next.delete(id);
-        } else {
-          next.add(id);
-        }
-
-        return next;
-      },
     );
   };
 
@@ -387,6 +360,41 @@ export default function PreviewTable({
                 </button>
               )}
             </div>
+          </div>
+        )}
+
+        {parents.length > 0 && onSaveProduct && (
+          <div role="region" aria-label="Save batch products" aria-busy={isSaving} className="mt-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-900">Ready to save</h3>
+              <p className="mt-1 text-xs text-slate-500">
+                Save each parent together with its variants here. No horizontal scrolling needed.
+              </p>
+            </div>
+            {parents.map((parent) => {
+              const variantCount = variantsByParent.get(parent.id)?.length ?? 0;
+
+              return (
+                <div key={parent.id} className="flex flex-col gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-semibold text-slate-900">{parent.productName}</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Design {parent.designNumber || "—"} · 1 parent + {variantCount} variant{variantCount === 1 ? "" : "s"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onSaveProduct(parent)}
+                    disabled={isSaving}
+                    aria-label={`Save Parent + Variants: ${parent.productName}`}
+                    className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
+                  >
+                    <Database size={16} aria-hidden="true" />
+                    {isSaving ? "Saving..." : "Save Parent + Variants"}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -660,16 +668,10 @@ export default function PreviewTable({
                       saving={
                         isSaving
                       }
-                      openImageRows={
-                        openImageRows
-                      }
                       onToggle={() =>
                         toggleParent(
                           parent.id,
                         )
-                      }
-                      onToggleImages={
-                        toggleImages
                       }
                       onSetQuantity={
                         onSetVariantQuantity
@@ -685,9 +687,6 @@ export default function PreviewTable({
                       }
                       onRemove={
                         onRemoveProduct
-                      }
-                      onSave={
-                        onSaveProduct
                       }
                       onUpdate={
                         onUpdateProduct
@@ -807,15 +806,12 @@ function ParentGroup({
   generating,
   showVariantGenerator,
   saving,
-  openImageRows,
   onToggle,
-  onToggleImages,
   onSetQuantity,
   onGenerateTitles,
   onCreateVariants,
   onEdit,
   onRemove,
-  onSave,
   onUpdate,
   onUpdateModel,
 }: {
@@ -827,11 +823,7 @@ function ParentGroup({
   generating: boolean;
   showVariantGenerator: boolean;
   saving: boolean;
-  openImageRows: Set<string>;
   onToggle: () => void;
-  onToggleImages: (
-    id: string,
-  ) => void;
   onSetQuantity?: (
     id: string,
     value: string,
@@ -846,9 +838,6 @@ function ParentGroup({
     product: Product,
   ) => void;
   onRemove?: (
-    product: Product,
-  ) => void;
-  onSave?: (
     product: Product,
   ) => void;
   onUpdate?: (
@@ -1517,12 +1506,6 @@ function ParentGroup({
           onUpdate={
             onUpdate
           }
-          onToggleImages={
-            onToggleImages
-          }
-          open={openImageRows.has(
-            parent.id,
-          )}
         />
 
         <ImageCell
@@ -1531,10 +1514,6 @@ function ParentGroup({
           onUpdate={
             onUpdate
           }
-          onToggleImages={
-            onToggleImages
-          }
-          open={false}
         />
 
         <ImageCell
@@ -1543,10 +1522,6 @@ function ParentGroup({
           onUpdate={
             onUpdate
           }
-          onToggleImages={
-            onToggleImages
-          }
-          open={false}
         />
 
         <ImageCell
@@ -1555,10 +1530,6 @@ function ParentGroup({
           onUpdate={
             onUpdate
           }
-          onToggleImages={
-            onToggleImages
-          }
-          open={false}
         />
 
         <Cell>
@@ -1598,26 +1569,6 @@ function ParentGroup({
               </ActionButton>
             </div>
 
-            <ActionButton
-              success
-              onClick={() =>
-                onSave?.(
-                  parent,
-                )
-              }
-              disabled={
-                saving
-              }
-              full
-            >
-              <Database
-                size={13}
-              />
-
-              {saving
-                ? "Saving..."
-                : "Save Parent + Variants"}
-            </ActionButton>
           </div>
         </Cell>
       </tr>
@@ -1755,12 +1706,6 @@ function ParentGroup({
               saving={
                 saving
               }
-              openImageRows={
-                openImageRows
-              }
-              onToggleImages={
-                onToggleImages
-              }
               onRemove={
                 onRemove
               }
@@ -1786,18 +1731,12 @@ function ParentGroup({
 function VariantRow({
   product,
   saving,
-  openImageRows,
-  onToggleImages,
   onRemove,
   onUpdate,
   onUpdateModel,
 }: {
   product: Product;
   saving: boolean;
-  openImageRows: Set<string>;
-  onToggleImages: (
-    id: string,
-  ) => void;
   onRemove?: (
     product: Product,
   ) => void;
@@ -2359,12 +2298,6 @@ function VariantRow({
         onUpdate={
           onUpdate
         }
-        onToggleImages={
-          onToggleImages
-        }
-        open={openImageRows.has(
-          product.id,
-        )}
       />
 
       <ImageCell
@@ -2373,10 +2306,6 @@ function VariantRow({
         onUpdate={
           onUpdate
         }
-        onToggleImages={
-          onToggleImages
-        }
-        open={false}
       />
 
       <ImageCell
@@ -2385,10 +2314,6 @@ function VariantRow({
         onUpdate={
           onUpdate
         }
-        onToggleImages={
-          onToggleImages
-        }
-        open={false}
       />
 
       <ImageCell
@@ -2397,10 +2322,6 @@ function VariantRow({
         onUpdate={
           onUpdate
         }
-        onToggleImages={
-          onToggleImages
-        }
-        open={false}
       />
 
       <Cell>
@@ -2481,8 +2402,6 @@ function ImageCell({
   product,
   field,
   onUpdate,
-  onToggleImages,
-  open,
 }: {
   product: Product;
   field: VariantImageField;
@@ -2491,13 +2410,14 @@ function ImageCell({
     field: EditableField,
     value: string,
   ) => void;
-  onToggleImages: (
-    id: string,
-  ) => void;
-  open: boolean;
 }) {
+  const [hidden, setHidden] = useState(false);
   const value =
     product[field] ?? "";
+  const imageUrl = value.trim();
+  const imageLabel = `Image ${field.slice(-1)}`;
+  const open = !hidden && Boolean(imageUrl);
+  const toggleLabel = `${open ? "Hide" : "Show"} ${imageLabel.toLowerCase()} preview for ${product.productName}`;
 
   return (
     <Cell>
@@ -2506,6 +2426,7 @@ function ImageCell({
           <input
             type="url"
             value={value}
+            aria-label={`${imageLabel} URL for ${product.productName}`}
             onChange={(
               event,
             ) =>
@@ -2522,17 +2443,12 @@ function ImageCell({
 
           <button
             type="button"
-            onClick={() =>
-              onToggleImages(
-                product.id,
-              )
-            }
-            className="shrink-0 rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50"
-            title={
-              open
-                ? "Hide image preview"
-                : "Preview image"
-            }
+            onClick={() => setHidden((current) => !current)}
+            disabled={!imageUrl}
+            aria-label={toggleLabel}
+            aria-expanded={open}
+            className="shrink-0 rounded-lg border border-slate-200 bg-white p-2 text-slate-500 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+            title={toggleLabel}
           >
             {open ? (
               <X
@@ -2546,24 +2462,39 @@ function ImageCell({
           </button>
         </div>
 
-        {open &&
-          value && (
+        {open && (
             <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
-              <img
-                src={value}
-                alt={field}
-                className="h-28 w-full object-contain"
-                onError={(
-                  event,
-                ) => {
-                  event.currentTarget.style.display =
-                    "none";
-                }}
+              <ImagePreview
+                key={imageUrl}
+                src={imageUrl}
+                alt={`${imageLabel} for ${product.productName}`}
               />
             </div>
           )}
       </div>
     </Cell>
+  );
+}
+
+function ImagePreview({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <p role="status" className="flex h-28 items-center justify-center px-3 text-center text-xs text-slate-500">
+        Unable to load preview. Check the image URL.
+      </p>
+    );
+  }
+
+  return (
+    <img
+      src={src}
+      alt={alt}
+      loading="lazy"
+      className="h-28 w-full object-contain"
+      onError={() => setFailed(true)}
+    />
   );
 }
 
