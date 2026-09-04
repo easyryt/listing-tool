@@ -1,4 +1,5 @@
 export const DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT = 2;
+export const DEFAULT_PRODUCT_PRICE = 191;
 
 export function getWrongDefectiveReturnDiscount(value: unknown) {
   if (
@@ -18,16 +19,14 @@ export function getWrongDefectiveReturnDiscount(value: unknown) {
     : DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT;
 }
 
-const VARIANT_PRICE_CYCLE = [191, 192, 193, 194, 195] as const;
+const VARIANT_PRICE_CYCLE_LENGTH = 5;
 
-export function getVariantPrice(variantNumber: unknown) {
+export function getVariantPrice(basePrice: number, variantNumber: unknown) {
   const numericVariantNumber = Number(variantNumber);
   const normalizedVariantNumber =
     Number.isInteger(numericVariantNumber) && numericVariantNumber > 0
       ? numericVariantNumber
       : 1;
 
-  return VARIANT_PRICE_CYCLE[
-    (normalizedVariantNumber - 1) % VARIANT_PRICE_CYCLE.length
-  ];
+  return basePrice + (normalizedVariantNumber - 1) % VARIANT_PRICE_CYCLE_LENGTH;
 }

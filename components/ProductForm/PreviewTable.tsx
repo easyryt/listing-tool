@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { getWrongDefectiveReturnDiscount } from "@/lib/pricing";
 
 import type {
   FormData,
@@ -30,6 +31,7 @@ type EditableField =
   | "theme"
   | "type"
   | "price"
+  | "wrongDefectiveReturnsPrice"
   | "mrp"
   | "gst"
   | "hsn"
@@ -462,6 +464,10 @@ export default function PreviewTable({
                 </Head>
 
                 <Head>
+                  Wrong/Defective Return Discount (₹)
+                </Head>
+
+                <Head>
                   MRP
                 </Head>
 
@@ -755,6 +761,13 @@ export default function PreviewTable({
             />
 
             <Preview
+              value={`₹${getWrongDefectiveReturnDiscount(
+                data.wrongDefectiveReturnsPrice,
+              ).toLocaleString("en-IN")}`}
+              label="Wrong/Defective Return Discount (₹)"
+            />
+
+            <Preview
               value={`${Number(
                 data.inventory ??
                   0,
@@ -1045,6 +1058,8 @@ function ParentGroup({
           value={
             parent.price
           }
+          min={0}
+          step="any"
           onChange={(
             value,
           ) =>
@@ -1053,6 +1068,16 @@ function ParentGroup({
               "price",
               value,
             )
+          }
+        />
+
+        <NumberCell
+          value={getWrongDefectiveReturnDiscount(parent.wrongDefectiveReturnsPrice)}
+          min={0}
+          max={30}
+          step={1}
+          onChange={(value) =>
+            onUpdate?.(parent.id, "wrongDefectiveReturnsPrice", value)
           }
         />
 
@@ -1933,12 +1958,24 @@ function VariantRow({
         value={
           product.price
         }
+        min={0}
+        step="any"
         onChange={(value) =>
           onUpdate?.(
             product.id,
             "price",
             value,
           )
+        }
+      />
+
+      <NumberCell
+        value={getWrongDefectiveReturnDiscount(product.wrongDefectiveReturnsPrice)}
+        min={0}
+        max={30}
+        step={1}
+        onChange={(value) =>
+          onUpdate?.(product.id, "wrongDefectiveReturnsPrice", value)
         }
       />
 
@@ -2649,8 +2686,14 @@ function EditableCell({
 function NumberCell({
   value,
   onChange,
+  min,
+  max,
+  step,
 }: {
   value?: number;
+  min?: number;
+  max?: number;
+  step?: number | "any";
   onChange: (
     value: string,
   ) => void;
@@ -2659,6 +2702,9 @@ function NumberCell({
     <Cell>
       <input
         type="number"
+        min={min}
+        max={max}
+        step={step}
         value={
           value ?? 0
         }

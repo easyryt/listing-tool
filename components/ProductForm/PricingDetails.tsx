@@ -26,15 +26,20 @@ export default function PricingDetails({
           </label>
 
           <input
+            aria-label="Meesho Price (V1)"
             type="number"
-            readOnly
+            min="0"
+            step="any"
             {...register("price", {
               valueAsNumber: true,
+              required: true,
+              min: 0,
             })}
-            className="w-full cursor-not-allowed rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-600"
+            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
           <p className="mt-1.5 text-xs text-slate-500">
-            Variant prices cycle automatically from ₹191 to ₹195.
+            Enter any starting price. Variants add ₹1 through ₹4, then repeat
+            from your starting price (for example: ₹121, ₹122, ₹123, ₹124, ₹125, ₹121).
           </p>
         </div>
 

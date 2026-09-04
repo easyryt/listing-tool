@@ -32,7 +32,6 @@ import type { Product as ProductFormProduct } from "@/components/ProductForm/Pro
 import { exportExcel } from "@/lib/excel";
 import {
   DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
-  getVariantPrice,
   getWrongDefectiveReturnDiscount,
 } from "@/lib/pricing";
 
@@ -330,9 +329,6 @@ function charmSku(value: string) {
 
 function createDraft(product: Product): CharmDraft {
   const sku = charmSku(product.sku);
-  const variantNumber = product.parentId
-    ? product.variantNumber ?? product.version
-    : 1;
 
   return {
     ...product,
@@ -341,7 +337,6 @@ function createDraft(product: Product): CharmDraft {
     designName: charmDesignName(product.designName),
     sku,
     styleId: sku,
-    price: getVariantPrice(variantNumber),
     wrongDefectiveReturnsPrice: DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
     sourceProductId: product.id,
     sourceKind: product.parentId ? "variant" : "parent",
@@ -392,6 +387,9 @@ function updateField<T extends EditableRow>(row: T, field: EditableField, value:
 function rowPayload(row: EditableRow) {
   const payload: Record<string, unknown> = {};
   for (const field of EDITABLE_FIELDS) payload[field] = row[field];
+  payload.wrongDefectiveReturnsPrice = getWrongDefectiveReturnDiscount(
+    row.wrongDefectiveReturnsPrice,
+  );
   payload.styleId = row.sku;
   payload.models = row.models;
   return payload;
@@ -456,15 +454,10 @@ export default function CharmManager({
         );
         const loadedCharms = (charmsResult.charms ?? []).map((charm) => {
           const sku = charmSku(charm.sku);
-          const variantNumber =
-            charm.sourceKind === "variant"
-              ? charm.sourceVariantNumber ?? charm.version
-              : 1;
           return {
             ...charm,
             sku,
             styleId: sku,
-            price: getVariantPrice(variantNumber),
             wrongDefectiveReturnsPrice:
               getWrongDefectiveReturnDiscount(
                 charm.wrongDefectiveReturnsPrice,

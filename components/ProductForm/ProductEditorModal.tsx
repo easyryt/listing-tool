@@ -16,6 +16,7 @@ import {
 
 import { PHONE_MODELS } from "@/lib/models";
 import {
+  DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
   getWrongDefectiveReturnDiscount,
 } from "@/lib/pricing";
@@ -139,10 +140,6 @@ function numberText(value: unknown) {
 }
 
 function productToForm(product: Product): EditorForm {
-  const variantNumber = product.parentId
-    ? product.variantNumber ?? product.version
-    : 1;
-
   return {
     productName: text(product.productName),
     description: text(product.description),
@@ -153,7 +150,7 @@ function productToForm(product: Product): EditorForm {
     color: text(product.color),
     theme: text(product.theme),
     type: text(product.type),
-    price: numberText(getVariantPrice(variantNumber)),
+    price: numberText(product.price),
     wrongDefectiveReturnsPrice: numberText(
       getWrongDefectiveReturnDiscount(
         product.wrongDefectiveReturnsPrice,
@@ -381,10 +378,6 @@ export default function ProductEditorModal({
   };
 
   const buildPayload = () => {
-    const pricingVariantNumber = isVariant
-      ? activeProduct.variantNumber ?? form.version
-      : 1;
-
     const requiredStrings: Array<[string, string]> = [
       [form.productName, "Product Name"],
       [form.sku, "SKU"],
@@ -404,7 +397,8 @@ export default function ProductEditorModal({
     }
 
     const wrongDefectiveReturnsPrice = parseRequiredNumber(
-      form.wrongDefectiveReturnsPrice,
+      form.wrongDefectiveReturnsPrice.trim() ||
+        String(DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT),
       "Wrong/Defective Return Discount",
     );
 
@@ -422,7 +416,7 @@ export default function ProductEditorModal({
       color: form.color.trim(),
       theme: form.theme.trim(),
       type: form.type.trim(),
-      price: getVariantPrice(pricingVariantNumber),
+      price: parseRequiredNumber(form.price, "Selling Price"),
       wrongDefectiveReturnsPrice,
       mrp: parseRequiredNumber(form.mrp, "MRP"),
       gst: parseRequiredNumber(form.gst, "GST"),
@@ -514,7 +508,17 @@ export default function ProductEditorModal({
         // parent. This keeps the V2+ records consistent after a parent edit.
         await Promise.all(
           standardVariants.map((variant) =>
-            updateProduct(variant.id, sharedPayload),
+            updateProduct(variant.id, {
+              ...sharedPayload,
+              ...(payload.price !== activeProduct.price
+                ? {
+                    price: getVariantPrice(
+                      payload.price,
+                      variant.variantNumber ?? variant.version,
+                    ),
+                  }
+                : {}),
+            }),
           ),
         );
       }
@@ -872,8 +876,8 @@ export default function ProductEditorModal({
               description="Update prices, tax, HSN and available stock for this exact record."
             >
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <TextField label="Selling Price" type="number" min="0" step="1" required disabled value={form.price} onChange={(value) => setField("price", value)} help="Automatically follows the ₹191–₹195 variant cycle." />
-                <TextField label="Wrong/Defective Return Discount (₹)" type="number" min="0" max="30" step="1" required value={form.wrongDefectiveReturnsPrice} onChange={(value) => setField("wrongDefectiveReturnsPrice", value)} help="Editable discount from ₹0 to ₹30; defaults to ₹2." />
+                <TextField label="Selling Price" type="number" min="0" step="any" required value={form.price} onChange={(value) => setField("price", value)} help={isVariant ? "Enter any price for this variant." : "Changing this price updates standard variants in a repeating five-price sequence starting here."} />
+                <TextField label="Wrong/Defective Return Discount (₹)" type="number" min="0" max="30" step="1" value={form.wrongDefectiveReturnsPrice} onChange={(value) => setField("wrongDefectiveReturnsPrice", value)} help="Editable discount from ₹0 to ₹30; defaults to ₹2 when blank." />
                 <TextField label="MRP" type="number" min="0" step="0.01" required value={form.mrp} onChange={(value) => setField("mrp", value)} />
                 <TextField label="GST %" type="number" min="0" step="0.01" required value={form.gst} onChange={(value) => setField("gst", value)} />
                 <TextField label="HSN" value={form.hsn} onChange={(value) => setField("hsn", value)} />

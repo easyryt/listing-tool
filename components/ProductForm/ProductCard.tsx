@@ -28,6 +28,7 @@ import {
   generateSKU,
 } from "@/lib/sku";
 import {
+  DEFAULT_PRODUCT_PRICE,
   DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getVariantPrice,
   getWrongDefectiveReturnDiscount,
@@ -154,7 +155,7 @@ const DEFAULT_VALUES: FormData = {
   theme: "No Theme",
   type: "Designer",
 
-  price: getVariantPrice(1),
+  price: DEFAULT_PRODUCT_PRICE,
   wrongDefectiveReturnsPrice: DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   mrp: 899,
   gst: 18,
@@ -1075,6 +1076,11 @@ export default function ProductCard() {
       const values =
         getValues();
 
+      if (!Number.isFinite(values.price) || values.price < 0) {
+        alert("Please enter a price of ₹0 or more.");
+        return;
+      }
+
       if (!hasOneModel) {
         alert(
           "Please select exactly one phone model first.",
@@ -1287,7 +1293,7 @@ export default function ProductCard() {
           ...currentValues,
 
           price:
-            getVariantPrice(1),
+            currentValues.price,
 
           wrongDefectiveReturnsPrice:
             getWrongDefectiveReturnDiscount(
@@ -1327,18 +1333,31 @@ export default function ProductCard() {
       if (
         editingProductId
       ) {
-        setProducts(
-          (current) =>
-            current.map(
-              (
-                product,
-              ) =>
-                product.id ===
-                editingProductId
-                  ? productToSave
-                  : product,
-            ),
-        );
+        setProducts((current) => {
+          const previousPrice = current.find(
+            (product) => product.id === editingProductId,
+          )?.price;
+
+          return current.map((product) => {
+            if (product.id === editingProductId) return productToSave;
+
+            if (
+              product.parentId === editingProductId &&
+              (product.variantType ?? "standard") === "standard" &&
+              previousPrice !== productToSave.price
+            ) {
+              return {
+                ...product,
+                price: getVariantPrice(
+                  productToSave.price,
+                  product.variantNumber ?? product.version,
+                ),
+              };
+            }
+
+            return product;
+          });
+        });
       } else {
         setProducts(
           (current) => [
@@ -1836,6 +1855,7 @@ export default function ProductCard() {
 
               price:
                 getVariantPrice(
+                  parentProduct.price,
                   versionNumber,
                 ),
 
@@ -2748,6 +2768,56 @@ export default function ProductCard() {
           field,
           value,
         ) => {
+          if (field === "price") {
+            const price = Number(value || 0);
+            if (!Number.isFinite(price) || price < 0) return;
+
+            setProducts((current) => {
+              const parent = current.find(
+                (product) => product.id === productId && !product.parentId,
+              );
+
+              return current.map((product) => {
+                if (product.id === productId) return { ...product, price };
+
+                if (
+                  parent &&
+                  parent.price !== price &&
+                  product.parentId === parent.id &&
+                  (product.variantType ?? "standard") === "standard"
+                ) {
+                  return {
+                    ...product,
+                    price: getVariantPrice(
+                      price,
+                      product.variantNumber ?? product.version,
+                    ),
+                  };
+                }
+
+                return product;
+              });
+            });
+
+            if (editingProductId === productId) {
+              setValue("price", price, { shouldDirty: true });
+            }
+            return;
+          }
+
+          if (field === "wrongDefectiveReturnsPrice") {
+            const discount = getWrongDefectiveReturnDiscount(value);
+            setProducts((current) => current.map((product) =>
+              product.id === productId
+                ? { ...product, wrongDefectiveReturnsPrice: discount }
+                : product,
+            ));
+            if (editingProductId === productId) {
+              setValue("wrongDefectiveReturnsPrice", discount, { shouldDirty: true });
+            }
+            return;
+          }
+
           setProducts(
             (current) =>
               current.map(
@@ -2760,8 +2830,6 @@ export default function ProductCard() {
                   }
 
                   if (
-                    field ===
-                      "price" ||
                     field ===
                       "mrp" ||
                     field ===
