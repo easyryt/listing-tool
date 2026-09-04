@@ -27,13 +27,14 @@ export default function PricingDetails({
 
           <input
             type="number"
+            readOnly
             {...register("price", {
               valueAsNumber: true,
             })}
-            className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="w-full cursor-not-allowed rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-600"
           />
           <p className="mt-1.5 text-xs text-slate-500">
-            Enter the selling price for this product.
+            Variant prices cycle automatically from ₹191 to ₹195.
           </p>
         </div>
 
@@ -157,4 +158,3 @@ export default function PricingDetails({
     </div>
   );
 }
-
