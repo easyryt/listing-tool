@@ -154,7 +154,7 @@ const DEFAULT_VALUES: FormData = {
   theme: "No Theme",
   type: "Designer",
 
-  price: getVariantPrice(1),
+  price: getVariantPrice(191, 1),
   wrongDefectiveReturnsPrice: DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   mrp: 899,
   gst: 18,
@@ -1287,7 +1287,9 @@ export default function ProductCard() {
           ...currentValues,
 
           price:
-            getVariantPrice(1),
+            Number.isFinite(Number(currentValues.price)) && Number(currentValues.price) >= 0
+              ? Number(currentValues.price)
+              : getVariantPrice(191, 1),
 
           wrongDefectiveReturnsPrice:
             getWrongDefectiveReturnDiscount(
@@ -1836,6 +1838,7 @@ export default function ProductCard() {
 
               price:
                 getVariantPrice(
+                  parentProduct.price,
                   versionNumber,
                 ),
 
