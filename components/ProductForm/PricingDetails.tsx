@@ -27,11 +27,10 @@ export default function PricingDetails({
 
           <input
             type="number"
-            readOnly
             {...register("price", {
               valueAsNumber: true,
             })}
-            className="w-full cursor-not-allowed rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-600"
+            className="w-full  rounded-xl border border-slate-300 bg-slate-100 px-4 py-3 text-slate-600"
           />
           <p className="mt-1.5 text-xs text-slate-500">
             Variant prices cycle automatically from ₹191 to ₹195.

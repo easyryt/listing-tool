@@ -1,4 +1,4 @@
-"use client";
+
 
 import {
   Image as ImageIcon,
@@ -153,7 +153,7 @@ function productToForm(product: Product): EditorForm {
     color: text(product.color),
     theme: text(product.theme),
     type: text(product.type),
-    price: numberText(getVariantPrice(variantNumber)),
+    price: numberText(product.price),
     wrongDefectiveReturnsPrice: numberText(
       getWrongDefectiveReturnDiscount(
         product.wrongDefectiveReturnsPrice,
@@ -381,10 +381,6 @@ export default function ProductEditorModal({
   };
 
   const buildPayload = () => {
-    const pricingVariantNumber = isVariant
-      ? activeProduct.variantNumber ?? form.version
-      : 1;
-
     const requiredStrings: Array<[string, string]> = [
       [form.productName, "Product Name"],
       [form.sku, "SKU"],
@@ -422,7 +418,7 @@ export default function ProductEditorModal({
       color: form.color.trim(),
       theme: form.theme.trim(),
       type: form.type.trim(),
-      price: getVariantPrice(pricingVariantNumber),
+      price: parseRequiredNumber(form.price, "Selling Price"),
       wrongDefectiveReturnsPrice,
       mrp: parseRequiredNumber(form.mrp, "MRP"),
       gst: parseRequiredNumber(form.gst, "GST"),
@@ -872,7 +868,7 @@ export default function ProductEditorModal({
               description="Update prices, tax, HSN and available stock for this exact record."
             >
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <TextField label="Selling Price" type="number" min="0" step="1" required disabled value={form.price} onChange={(value) => setField("price", value)} help="Automatically follows the ₹191–₹195 variant cycle." />
+                <TextField label="Selling Price" type="number" min="0" step="1" required value={form.price} onChange={(value) => setField("price", value)} help="Enter the selling price for this exact record." />
                 <TextField label="Wrong/Defective Return Discount (₹)" type="number" min="0" max="30" step="1" required value={form.wrongDefectiveReturnsPrice} onChange={(value) => setField("wrongDefectiveReturnsPrice", value)} help="Editable discount from ₹0 to ₹30; defaults to ₹2." />
                 <TextField label="MRP" type="number" min="0" step="0.01" required value={form.mrp} onChange={(value) => setField("mrp", value)} />
                 <TextField label="GST %" type="number" min="0" step="0.01" required value={form.gst} onChange={(value) => setField("gst", value)} />
