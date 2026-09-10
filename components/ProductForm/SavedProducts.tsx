@@ -21,18 +21,21 @@ import {
   Smartphone,
   Sparkles,
   Trash2,
+  Upload,
   X,
 } from "lucide-react";
 import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
 } from "react";
 import { useRouter } from "next/navigation";
 
 import { exportExcel } from "@/lib/excel";
+import { parseCharmWorkbookRows } from "@/lib/charm-import";
 import type { Product as ProductFormProduct } from "./ProductCard";
 import ProductEditorModal from "./ProductEditorModal";
 
@@ -78,6 +81,17 @@ type ProductDetailResponse = {
   variants: Product[];
   variantCount: number;
   totalInventory: number;
+};
+
+type Charm = Product & {
+  sourceProductId?: string;
+  sourceKind?: "parent" | "variant";
+  sourceVariantNumber?: number;
+};
+
+type CharmsResponse = {
+  success: boolean;
+  charms: Charm[];
 };
 
 type StockMode = "set" | "add" | "remove";
@@ -190,6 +204,31 @@ function getAllProducts(
       parent,
       ...(parent.variants ?? []),
     ],
+  );
+}
+
+function positiveVersion(value: unknown) {
+  const number = Number(value);
+  return Number.isSafeInteger(number) && number > 0
+    ? number
+    : undefined;
+}
+
+function productVersion(product: Product) {
+  if (!product.parentId) return 1;
+  return (
+    positiveVersion(product.variantNumber) ??
+    positiveVersion(product.version) ??
+    positiveVersion(product.sku?.match(/\.V(\d+)$/i)?.[1])
+  );
+}
+
+function charmVersion(charm: Charm) {
+  if (charm.sourceKind === "parent") return 1;
+  return (
+    positiveVersion(charm.sourceVariantNumber) ??
+    positiveVersion(charm.version) ??
+    positiveVersion(charm.sku?.match(/\.V(\d+)$/i)?.[1])
   );
 }
 
@@ -338,6 +377,19 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
   ] = useState<Set<string>>(
     new Set(),
   );
+
+  const charmImportInputRef =
+    useRef<HTMLInputElement>(null);
+
+  const [
+    charmImportFile,
+    setCharmImportFile,
+  ] = useState<File | null>(null);
+
+  const [
+    isImportingCharms,
+    setIsImportingCharms,
+  ] = useState(false);
 
   /* ------------------------------------------------------------------------ */
   /* LOAD PRODUCTS                                                            */
@@ -981,6 +1033,304 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
   };
 
   /* ------------------------------------------------------------------------ */
+  /* IMPORT CHARMS                                                             */
+  /* ------------------------------------------------------------------------ */
+
+  const chooseCharmImportFile = (
+    file: File | undefined,
+  ) => {
+    setNotice(null);
+
+    if (!file) {
+      setCharmImportFile(null);
+      return;
+    }
+
+    if (!/\.xlsx$/i.test(file.name)) {
+      setCharmImportFile(null);
+      setError("Choose a Meesho .xlsx workbook.");
+      return;
+    }
+
+    if (file.size > 15 * 1024 * 1024) {
+      setCharmImportFile(null);
+      setError("The charm workbook must be 15 MB or smaller.");
+      return;
+    }
+
+    setError(null);
+    setCharmImportFile(file);
+  };
+
+  const importCharmWorkbook = async () => {
+    if (
+      !charmImportFile ||
+      !initialModel ||
+      isImportingCharms
+    ) {
+      return;
+    }
+
+    try {
+      setIsImportingCharms(true);
+      setError(null);
+      setNotice(null);
+
+      const ExcelJS = (await import("exceljs")).default;
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(
+        await charmImportFile.arrayBuffer(),
+      );
+
+      const importItems = parseCharmWorkbookRows(
+        workbook.worksheets.map((worksheet) => {
+          const rows: unknown[][] = [];
+
+          worksheet.eachRow(
+            { includeEmpty: true },
+            (row, rowNumber) => {
+              const values: unknown[] = [];
+              row.eachCell(
+                { includeEmpty: true },
+                (cell, columnNumber) => {
+                  values[columnNumber - 1] = cell.text;
+                },
+              );
+              rows[rowNumber - 1] = values;
+            },
+          );
+
+          return {
+            name: worksheet.name,
+            rows,
+          };
+        }),
+      );
+
+      const designNumbers = [
+        ...new Set(
+          importItems.map((item) => item.designNumber),
+        ),
+      ];
+
+      const resolvedParents = await Promise.all(
+        designNumbers.map(async (designNumber) => {
+          const params = new URLSearchParams({
+            kind: "parent",
+            limit: "100",
+            page: "1",
+            sort: "newest",
+            search: designNumber,
+            model: initialModel,
+          });
+          const lookup = await apiRequest<ProductsResponse>(
+            `/products?${params.toString()}`,
+          );
+          const matches = new Map<string, Product>();
+
+          for (const parent of [
+            ...catalogProducts,
+            ...(lookup.products ?? []),
+          ]) {
+            if (
+              !parent.parentId &&
+              String(parent.designNumber ?? "").trim() === designNumber
+            ) {
+              matches.set(parent.id, parent);
+            }
+          }
+
+          return {
+            designNumber,
+            parents: [...matches.values()],
+          };
+        }),
+      );
+
+      const parentErrors = resolvedParents.flatMap(
+        ({ designNumber, parents }) => {
+          if (!parents.length) {
+            return [
+              `No parent product with design number ${designNumber} was found in ${initialModel}.`,
+            ];
+          }
+          if (parents.length > 1) {
+            return [
+              `Design number ${designNumber} matches more than one parent product in ${initialModel}.`,
+            ];
+          }
+          return [];
+        },
+      );
+
+      if (parentErrors.length) {
+        throw new Error(parentErrors.join(" "));
+      }
+
+      type ImportContext = {
+        root: Product;
+        sourcesByVersion: Map<number, Product>;
+        charms: Charm[];
+      };
+
+      const contextEntries = await Promise.all(
+        resolvedParents.map(async ({ designNumber, parents }) => {
+          const parent = parents[0];
+          const [detailResult, charmsResult] = await Promise.all([
+            apiRequest<ProductDetailResponse>(
+              `/products/${encodeURIComponent(parent.id)}`,
+            ),
+            apiRequest<CharmsResponse>(
+              `/products/${encodeURIComponent(parent.id)}/charms`,
+            ),
+          ]);
+          const root = detailResult.parent ?? detailResult.product;
+          const sourcesByVersion = new Map<number, Product>();
+
+          for (const source of [
+            root,
+            ...(detailResult.variants ?? []),
+          ]) {
+            const version = productVersion(source);
+            if (version !== undefined) {
+              if (sourcesByVersion.has(version)) {
+                throw new Error(
+                  `Parent design ${designNumber} has more than one V${version} source.`,
+                );
+              }
+              sourcesByVersion.set(version, source);
+            }
+          }
+
+          return [
+            designNumber,
+            {
+              root,
+              sourcesByVersion,
+              charms: charmsResult.charms ?? [],
+            },
+          ] as const;
+        }),
+      );
+      const contexts = new Map<string, ImportContext>(
+        contextEntries,
+      );
+
+      const missingSources = importItems.flatMap((item) =>
+        contexts.get(item.designNumber)?.sourcesByVersion.has(item.version)
+          ? []
+          : [`design ${item.designNumber} V${item.version}`],
+      );
+
+      if (missingSources.length) {
+        throw new Error(
+          `Charm import stopped before saving. No matching product source was found for ${missingSources
+            .slice(0, 5)
+            .join(", ")}${missingSources.length > 5 ? ` and ${missingSources.length - 5} more` : ""}.`,
+        );
+      }
+
+      let created = 0;
+      let updated = 0;
+      const failures: string[] = [];
+
+      for (let start = 0; start < importItems.length; start += 8) {
+        const batch = importItems.slice(start, start + 8);
+        const results = await Promise.allSettled(
+          batch.map(async (item) => {
+            const context = contexts.get(item.designNumber);
+            const source = context?.sourcesByVersion.get(item.version);
+
+            if (!context || !source) {
+              throw new Error("The validated source is no longer available.");
+            }
+
+            const existing =
+              context.charms.find(
+                (charm) => charm.sourceProductId === source.id,
+              ) ??
+              context.charms.find(
+                (charm) => charmVersion(charm) === item.version,
+              );
+
+            try {
+              if (existing) {
+                await apiRequest(
+                  `/products/${encodeURIComponent(context.root.id)}/charms/${encodeURIComponent(existing.id)}`,
+                  {
+                    method: "PATCH",
+                    body: JSON.stringify(item.data),
+                  },
+                );
+                return "updated" as const;
+              }
+
+              await apiRequest(
+                `/products/${encodeURIComponent(source.id)}/with-charm`,
+                {
+                  method: "POST",
+                  body: JSON.stringify(item.data),
+                },
+              );
+              return "created" as const;
+            } catch (writeError) {
+              const message =
+                writeError instanceof Error
+                  ? writeError.message
+                  : "Unable to save charm.";
+              throw new Error(
+                `${item.sheet} row ${item.rowNumber} (design ${item.designNumber} V${item.version}): ${message}`,
+              );
+            }
+          }),
+        );
+
+        for (const result of results) {
+          if (result.status === "fulfilled") {
+            if (result.value === "updated") updated += 1;
+            else created += 1;
+          } else {
+            failures.push(
+              result.reason instanceof Error
+                ? result.reason.message
+                : "A charm row could not be imported.",
+            );
+          }
+        }
+      }
+
+      if (created + updated > 0) {
+        await loadProducts(true);
+        setNotice(
+          `${created} charm${created === 1 ? "" : "s"} created and ${updated} updated across ${designNumbers.length} parent design${designNumbers.length === 1 ? "" : "s"}.`,
+        );
+      }
+
+      if (failures.length) {
+        setError(
+          `${failures.length} charm row${failures.length === 1 ? "" : "s"} failed. ${failures
+            .slice(0, 2)
+            .join(" ")}${failures.length > 2 ? ` ${failures.length - 2} more error(s).` : ""}`,
+        );
+      } else {
+        setCharmImportFile(null);
+        if (charmImportInputRef.current) {
+          charmImportInputRef.current.value = "";
+        }
+      }
+    } catch (importError) {
+      console.error(importError);
+      setError(
+        importError instanceof Error
+          ? importError.message
+          : "Unable to import the charm workbook.",
+      );
+    } finally {
+      setIsImportingCharms(false);
+    }
+  };
+
+  /* ------------------------------------------------------------------------ */
   /* DELETE                                                                    */
   /* ------------------------------------------------------------------------ */
 
@@ -1591,6 +1941,71 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
             </div>
           </div>
         </header>
+
+        <section
+          aria-label={`Import charms for ${initialModel}`}
+          className="rounded-2xl border border-blue-200 bg-gradient-to-r from-blue-50 to-white p-4 shadow-sm sm:p-5"
+        >
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-sm">
+                <Sparkles size={19} />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-base font-bold text-slate-900">
+                  Import charm workbook
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Upload a Meesho XLSX. Each SKU design number is matched to its
+                  parent in {initialModel}, and V1, V2, V3… are linked to the
+                  corresponding product versions.
+                </p>
+                <p className="mt-1 text-xs font-medium text-blue-700">
+                  Only separate charm records are created or updated. Parent
+                  products and variants stay unchanged.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+              <label
+                className={`${secondaryButtonClass} max-w-full cursor-pointer ${isImportingCharms ? "pointer-events-none opacity-50" : ""}`}
+              >
+                <Upload size={16} />
+                <span className="max-w-56 truncate">
+                  {charmImportFile
+                    ? charmImportFile.name
+                    : "Choose charm XLSX"}
+                </span>
+                <input
+                  ref={charmImportInputRef}
+                  type="file"
+                  accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  className="sr-only"
+                  disabled={isImportingCharms}
+                  onChange={(event) =>
+                    chooseCharmImportFile(event.target.files?.[0])
+                  }
+                />
+              </label>
+
+              <button
+                type="button"
+                onClick={() => void importCharmWorkbook()}
+                disabled={!charmImportFile || isImportingCharms}
+                aria-busy={isImportingCharms}
+                className={primaryButtonClass}
+              >
+                {isImportingCharms ? (
+                  <RefreshCw size={16} className="animate-spin" />
+                ) : (
+                  <Upload size={16} />
+                )}
+                {isImportingCharms ? "Importing..." : "Import Charms"}
+              </button>
+            </div>
+          </div>
+        </section>
 
         {notice && (
           <div className="mb-5 flex items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
