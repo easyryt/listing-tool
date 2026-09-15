@@ -157,7 +157,7 @@ const DEFAULT_VALUES: FormData = {
   type: "Designer",
 
   price: DEFAULT_PRODUCT_PRICE,
-  wrongDefectiveReturnsPrice: DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  wrongDefectiveReturnsPrice: 1,
   mrp: 899,
   gst: 18,
   hsn: "3926",
