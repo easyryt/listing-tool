@@ -32,8 +32,9 @@ import type { Product as ProductFormProduct } from "@/components/ProductForm/Pro
 import { exportExcel } from "@/lib/excel";
 import { charmVariantNumber, sortCharmsByVersion } from "@/lib/charm-order";
 import {
-  DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
-  getWrongDefectiveReturnDiscount,
+  DEFAULT_CHARM_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  getCharmPrice,
+  getCharmWrongDefectiveReturnDiscount,
 } from "@/lib/pricing";
 
 const API_BASE_URL = (
@@ -330,6 +331,13 @@ function charmSku(value: string) {
 
 function createDraft(product: Product): CharmDraft {
   const sku = charmSku(product.sku);
+  const sourceKind = product.parentId ? "variant" : "parent";
+  const sourceVariantNumber = product.variantNumber;
+  const versionNumber = charmVariantNumber({
+    ...product,
+    sourceKind,
+    sourceVariantNumber,
+  });
 
   return {
     ...product,
@@ -338,10 +346,12 @@ function createDraft(product: Product): CharmDraft {
     designName: charmDesignName(product.designName),
     sku,
     styleId: sku,
-    wrongDefectiveReturnsPrice: DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+    price: getCharmPrice(versionNumber),
+    wrongDefectiveReturnsPrice:
+      DEFAULT_CHARM_WRONG_DEFECTIVE_RETURN_DISCOUNT,
     sourceProductId: product.id,
-    sourceKind: product.parentId ? "variant" : "parent",
-    sourceVariantNumber: product.variantNumber,
+    sourceKind,
+    sourceVariantNumber,
     draft: true,
   };
 }
@@ -387,9 +397,10 @@ function updateField<T extends EditableRow>(row: T, field: EditableField, value:
 function rowPayload(row: EditableRow) {
   const payload: Record<string, unknown> = {};
   for (const field of EDITABLE_FIELDS) payload[field] = row[field];
-  payload.wrongDefectiveReturnsPrice = getWrongDefectiveReturnDiscount(
-    row.wrongDefectiveReturnsPrice,
-  );
+  payload.wrongDefectiveReturnsPrice =
+    getCharmWrongDefectiveReturnDiscount(
+      row.wrongDefectiveReturnsPrice,
+    );
   payload.styleId = row.sku;
   payload.models = row.models;
   return payload;
@@ -462,7 +473,7 @@ export default function CharmManager({
             sku,
             styleId: sku,
             wrongDefectiveReturnsPrice:
-              getWrongDefectiveReturnDiscount(
+              getCharmWrongDefectiveReturnDiscount(
                 charm.wrongDefectiveReturnsPrice,
               ),
           };

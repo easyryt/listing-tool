@@ -12,6 +12,11 @@ export type CharmImportSheet = {
   rows: unknown[][];
 };
 
+type CharmWorkbookCell = {
+  value: unknown;
+  readonly text: string;
+};
+
 type ColumnSpec = {
   field: string;
   names: string[];
@@ -59,6 +64,14 @@ const COLUMNS: ColumnSpec[] = [
 
 function clean(value: unknown) {
   return String(value ?? "").replace(/\s+/g, " ").trim();
+}
+
+export function readCharmWorkbookCellText(cell: CharmWorkbookCell) {
+  return cell.value == null ? "" : cell.text;
+}
+
+function isMeeshoFillSheet(sheet: CharmImportSheet) {
+  return /\bfill[\s-]+this\b/i.test(clean(sheet.name));
 }
 
 function cleanHeader(value: unknown) {
@@ -123,7 +136,12 @@ export function parseCharmWorkbookRows(
   const errors: string[] = [];
   let supportedSheets = 0;
 
-  for (const sheet of sheets) {
+  const meeshoFillSheets = sheets.filter(isMeeshoFillSheet);
+  const candidateSheets = meeshoFillSheets.length
+    ? meeshoFillSheets
+    : sheets;
+
+  for (const sheet of candidateSheets) {
     const headerIndex = sheet.rows.findIndex((row) =>
       Array.isArray(row) &&
       findColumn(row, ["product name"]) >= 0 &&
@@ -158,7 +176,7 @@ export function parseCharmWorkbookRows(
         data.styleId = clean(data.styleId).toUpperCase() || sku;
         data.version = String(identity.version);
         if (data.wrongDefectiveReturnsPrice === undefined) {
-          data.wrongDefectiveReturnsPrice = 2;
+          data.wrongDefectiveReturnsPrice = 1;
         }
         const model = stringCell(row, headers, ["compatible models", "compatible model", "phone model"]);
         if (model) data.models = [{ model }];

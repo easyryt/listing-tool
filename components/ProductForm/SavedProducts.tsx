@@ -35,7 +35,10 @@ import {
 import { useRouter } from "next/navigation";
 
 import { exportExcel } from "@/lib/excel";
-import { parseCharmWorkbookRows } from "@/lib/charm-import";
+import {
+  parseCharmWorkbookRows,
+  readCharmWorkbookCellText,
+} from "@/lib/charm-import";
 import type { Product as ProductFormProduct } from "./ProductCard";
 import ProductEditorModal from "./ProductEditorModal";
 
@@ -1093,7 +1096,8 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
               row.eachCell(
                 { includeEmpty: true },
                 (cell, columnNumber) => {
-                  values[columnNumber - 1] = cell.text;
+                  values[columnNumber - 1] =
+                    readCharmWorkbookCellText(cell);
                 },
               );
               rows[rowNumber - 1] = values;

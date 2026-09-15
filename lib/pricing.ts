@@ -1,13 +1,15 @@
 export const DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT = 2;
 export const DEFAULT_PRODUCT_PRICE = 191;
+export const DEFAULT_CHARM_WRONG_DEFECTIVE_RETURN_DISCOUNT = 1;
+export const DEFAULT_CHARM_PRICE = 196;
 
-export function getWrongDefectiveReturnDiscount(value: unknown) {
+function getReturnDiscount(value: unknown, fallback: number) {
   if (
     value === undefined ||
     value === null ||
     (typeof value === "string" && !value.trim())
   ) {
-    return DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT;
+    return fallback;
   }
 
   const numericValue = Number(value);
@@ -16,7 +18,21 @@ export function getWrongDefectiveReturnDiscount(value: unknown) {
     numericValue >= 0 &&
     numericValue <= 30
     ? numericValue
-    : DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT;
+    : fallback;
+}
+
+export function getWrongDefectiveReturnDiscount(value: unknown) {
+  return getReturnDiscount(
+    value,
+    DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  );
+}
+
+export function getCharmWrongDefectiveReturnDiscount(value: unknown) {
+  return getReturnDiscount(
+    value,
+    DEFAULT_CHARM_WRONG_DEFECTIVE_RETURN_DISCOUNT,
+  );
 }
 
 const VARIANT_PRICE_CYCLE_LENGTH = 5;
@@ -29,4 +45,8 @@ export function getVariantPrice(basePrice: number, variantNumber: unknown) {
       : 1;
 
   return basePrice + (normalizedVariantNumber - 1) % VARIANT_PRICE_CYCLE_LENGTH;
+}
+
+export function getCharmPrice(variantNumber: unknown) {
+  return getVariantPrice(DEFAULT_CHARM_PRICE, variantNumber);
 }
