@@ -18,6 +18,22 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## AI providers
+
+The AI image assistant can use either Google Gemini or OpenAI. Choose the provider from **AI generation settings**; the selection is saved in the browser and is also used for variant title generation.
+
+Copy `.env.example` to `.env.local`, then configure one or both providers:
+
+```env
+GEMINI_API_KEY=your_gemini_key
+GEMINI_CONTENT_MODEL=gemini-3.6-flash
+
+OPENAI_API_KEY=your_openai_key
+OPENAI_CONTENT_MODEL=gpt-4.1-mini
+```
+
+`AI_PROVIDER=gemini` (or `openai`) sets the server default for requests that do not include a provider. API keys stay on the server and are never exposed to the browser.
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More

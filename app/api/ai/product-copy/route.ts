@@ -6,6 +6,8 @@ export const maxDuration = 60;
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 const MAX_AI_ATTEMPTS = 3;
 
+type AiProvider = "gemini" | "openai";
+
 type GeminiPart = {
   text?: string;
 };
@@ -15,6 +17,19 @@ type GeminiResponse = {
     content?: {
       parts?: GeminiPart[];
     };
+  }>;
+  error?: {
+    message?: string;
+  };
+};
+
+type OpenAiResponse = {
+  output_text?: string;
+  output?: Array<{
+    content?: Array<{
+      type?: string;
+      text?: string;
+    }>;
   }>;
   error?: {
     message?: string;
@@ -86,6 +101,14 @@ function cleanJson(text: string) {
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
+}
+
+function getAiProvider(value: FormDataEntryValue | null): AiProvider {
+  if (value === "gemini" || value === "openai") {
+    return value;
+  }
+
+  return process.env.AI_PROVIDER === "openai" ? "openai" : "gemini";
 }
 
 function cleanText(value: unknown, fallback = "") {
@@ -333,6 +356,111 @@ async function generateWithGemini({
   }
 }
 
+function getOpenAiText(data: OpenAiResponse) {
+  if (data.output_text?.trim()) {
+    return data.output_text.trim();
+  }
+
+  return data.output
+    ?.flatMap((item) => item.content ?? [])
+    .filter((part) => part.type === "output_text")
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim();
+}
+
+async function generateWithOpenAi({
+  apiKey,
+  model,
+  imageBase64,
+  mimeType,
+  prompt,
+  titleCount,
+}: {
+  apiKey: string;
+  model: string;
+  imageBase64: string;
+  mimeType: string;
+  prompt: string;
+  titleCount: number;
+}) {
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model,
+      store: false,
+      input: [
+        {
+          role: "user",
+          content: [
+            { type: "input_text", text: prompt },
+            {
+              type: "input_image",
+              image_url: `data:${mimeType};base64,${imageBase64}`,
+              detail: "high",
+            },
+          ],
+        },
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "product_details",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              titleOptions: {
+                type: "array",
+                minItems: titleCount,
+                maxItems: titleCount,
+                items: { type: "string" },
+              },
+              color: { type: "string" },
+              material: { type: "string" },
+              designName: { type: "string" },
+              designCode: { type: "string" },
+            },
+            required: [
+              "titleOptions",
+              "color",
+              "material",
+              "designName",
+              "designCode",
+            ],
+          },
+        },
+      },
+      temperature: 0.55,
+      max_output_tokens: 1_000,
+    }),
+  });
+
+  const data = (await response.json()) as OpenAiResponse;
+
+  if (!response.ok) {
+    throw new Error(data.error?.message || "OpenAI could not analyze this image.");
+  }
+
+  const responseText = getOpenAiText(data);
+
+  if (!responseText) {
+    throw new Error("OpenAI returned no product details.");
+  }
+
+  try {
+    return JSON.parse(cleanJson(responseText)) as AiResult;
+  } catch {
+    console.error("Invalid OpenAI JSON:", responseText);
+    throw new Error("OpenAI returned an invalid response. Please try again.");
+  }
+}
+
 function getValidTitleOptions(
   value: unknown,
   selections: ProductSelections,
@@ -521,15 +649,6 @@ async function saveGeneratedDesign({
 
 export async function POST(request: Request) {
   try {
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "GEMINI_API_KEY is missing in .env.local." },
-        { status: 500 },
-      );
-    }
-
     if (!process.env.IMAGEKIT_PRIVATE_KEY) {
       return NextResponse.json(
         {
@@ -541,6 +660,23 @@ export async function POST(request: Request) {
     }
 
     const formData = await request.formData();
+    const provider = getAiProvider(formData.get("provider"));
+    const apiKey =
+      provider === "openai"
+        ? process.env.OPENAI_API_KEY
+        : process.env.GEMINI_API_KEY;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error:
+            provider === "openai"
+              ? "OPENAI_API_KEY is missing in .env.local."
+              : "GEMINI_API_KEY is missing in .env.local.",
+        },
+        { status: 500 },
+      );
+    }
 
     const selections: ProductSelections = {
       category: getRequiredField(formData, "category", "a category"),
@@ -587,19 +723,33 @@ export async function POST(request: Request) {
     const imageBuffer = Buffer.from(await image.arrayBuffer());
     const imageBase64 = imageBuffer.toString("base64");
 
-    const model = process.env.GEMINI_CONTENT_MODEL || "gemini-3.6-flash";
+    const model =
+      provider === "openai"
+        ? process.env.OPENAI_CONTENT_MODEL || "gpt-4.1-mini"
+        : process.env.GEMINI_CONTENT_MODEL || "gemini-3.6-flash";
 
     let finalResult: AiResult | null = null;
     let titleOptions: string[] = [];
 
     for (let attempt = 1; attempt <= MAX_AI_ATTEMPTS; attempt += 1) {
-      const result = await generateWithGemini({
-        apiKey,
-        model,
-        imageBase64,
-        mimeType: image.type,
-        prompt: createPrompt(selections, usedDesignCodes, attempt, titleCount),
-      });
+      const prompt = createPrompt(selections, usedDesignCodes, attempt, titleCount);
+      const result =
+        provider === "openai"
+          ? await generateWithOpenAi({
+              apiKey,
+              model,
+              imageBase64,
+              mimeType: image.type,
+              prompt,
+              titleCount,
+            })
+          : await generateWithGemini({
+              apiKey,
+              model,
+              imageBase64,
+              mimeType: image.type,
+              prompt,
+            });
 
       const designName = cleanDesignName(result.designName);
       const designCode = cleanDesignCode(result.designCode);

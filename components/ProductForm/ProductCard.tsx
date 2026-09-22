@@ -36,6 +36,7 @@ import {
 } from "@/lib/pricing";
 
 import AiProductScanner, {
+  type AiProvider,
   type GeneratedProductDetails,
 } from "./AiProductScanner";
 import DesignLibraryPicker, {
@@ -422,7 +423,22 @@ export default function ProductCard() {
     setGeneratedProductTitle,
   ] = useState("");
 
+  const [aiProvider, setAiProvider] = useState<AiProvider>("gemini");
+
   const formData = watch();
+
+  useEffect(() => {
+    const savedProvider = window.localStorage.getItem("listing-tool-ai-provider");
+
+    if (savedProvider === "gemini" || savedProvider === "openai") {
+      setAiProvider(savedProvider);
+    }
+  }, []);
+
+  const changeAiProvider = (provider: AiProvider) => {
+    setAiProvider(provider);
+    window.localStorage.setItem("listing-tool-ai-provider", provider);
+  };
 
   const selectedModel =
     selectedModels[0]
@@ -1625,6 +1641,8 @@ export default function ProductCard() {
                 productType:
                   parentProduct.type,
 
+                provider: aiProvider,
+
                 count:
                   quantity,
               }),
@@ -2416,6 +2434,7 @@ export default function ProductCard() {
                     model={selectedModel}
                     theme={formData.theme}
                     productType={formData.type}
+                    provider={aiProvider}
                     onCategoryChange={(value) =>
                       setValue("category", value, {
                         shouldDirty: true,
@@ -2435,6 +2454,7 @@ export default function ProductCard() {
                         shouldValidate: true,
                       })
                     }
+                    onProviderChange={changeAiProvider}
                     usedDesignCodes={Array.from(
                       new Set([
                         ...designLibraryCodes,

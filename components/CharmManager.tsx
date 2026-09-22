@@ -30,11 +30,14 @@ import { useRouter } from "next/navigation";
 
 import type { Product as ProductFormProduct } from "@/components/ProductForm/ProductCard";
 import { exportExcel } from "@/lib/excel";
+import { generateSKU } from "@/lib/sku";
 import { charmVariantNumber, sortCharmsByVersion } from "@/lib/charm-order";
 import {
   DEFAULT_CHARM_WRONG_DEFECTIVE_RETURN_DISCOUNT,
   getCharmPrice,
   getCharmWrongDefectiveReturnDiscount,
+  getVariantPrice,
+  getWrongDefectiveReturnDiscount,
 } from "@/lib/pricing";
 
 const API_BASE_URL = (
@@ -68,6 +71,7 @@ type CharmDraft = Charm & {
 type EditableRow = Charm | CharmDraft;
 type WorkspaceTab = "drafts" | "stored";
 type ImagePreviewState = { url: string; label: string };
+type AiProvider = "gemini" | "openai";
 
 type EditableField =
   | "productName"
@@ -161,6 +165,17 @@ type CharmResponse = {
   success: boolean;
   message: string;
   charm: Charm;
+};
+
+type CreateProductResponse = {
+  success: boolean;
+  message: string;
+  product: Product;
+};
+
+type AiVariantTitlesResponse = {
+  titles?: unknown;
+  error?: string;
 };
 
 const FIELD_GROUPS: FieldGroup[] = [
@@ -406,6 +421,73 @@ function rowPayload(row: EditableRow) {
   return payload;
 }
 
+function highestGroupNumber(rows: Product[]) {
+  return rows.reduce((highest, row) => {
+    const match = row.groupId.match(/^Group\s+(\d+)$/i);
+    return match ? Math.max(highest, Number(match[1])) : highest;
+  }, 0);
+}
+
+function createProductVariantPayload({
+  parent,
+  title,
+  variantNumber,
+  groupNumber,
+}: {
+  parent: Product;
+  title: string;
+  variantNumber: number;
+  groupNumber: number;
+}) {
+  const {
+    id,
+    parentId: _parentId,
+    variantNumber: _previousVariantNumber,
+    createdAt: _createdAt,
+    updatedAt: _updatedAt,
+    image: _image,
+    ...parentData
+  } = parent;
+  void _parentId;
+  void _previousVariantNumber;
+  void _createdAt;
+  void _updatedAt;
+  void _image;
+
+  const sku = generateSKU({
+    brand: parent.brand,
+    category: parent.category,
+    model: parent.models[0]?.model ?? "",
+    color: parent.color,
+    printType: parent.printType,
+    finish: parent.finish,
+    designCode: parent.designCode,
+    designNumber: parent.designNumber,
+    version: String(variantNumber),
+  });
+
+  return {
+    ...parentData,
+    parentId: id,
+    variantNumber,
+    variantType: "standard" as const,
+    version: String(variantNumber),
+    productName: title,
+    description: parent.description
+      ? `${parent.description}\n\nVariant V${variantNumber}.`
+      : `Variant V${variantNumber}.`,
+    price: getVariantPrice(parent.price, variantNumber),
+    wrongDefectiveReturnsPrice: getWrongDefectiveReturnDiscount(
+      parent.wrongDefectiveReturnsPrice,
+    ),
+    designNumber: parent.designNumber,
+    sku,
+    styleId: sku,
+    groupId: `Group ${String(groupNumber).padStart(2, "0")}`,
+    models: parent.models.map((model) => ({ ...model })),
+  };
+}
+
 export default function CharmManager({
   designNumber,
   productId,
@@ -437,6 +519,9 @@ export default function CharmManager({
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [additionalVariantCount, setAdditionalVariantCount] = useState("10");
+  const [aiProvider, setAiProvider] = useState<AiProvider>("gemini");
+  const [creatingAiVariants, setCreatingAiVariants] = useState(false);
 
   const load = useCallback(
     async (silent = false) => {
@@ -503,6 +588,19 @@ export default function CharmManager({
     const timeoutId = window.setTimeout(() => void load(), 0);
     return () => window.clearTimeout(timeoutId);
   }, [load]);
+
+  useEffect(() => {
+    const savedProvider = window.localStorage.getItem("listing-tool-ai-provider");
+
+    if (savedProvider === "gemini" || savedProvider === "openai") {
+      setAiProvider(savedProvider);
+    }
+  }, []);
+
+  const changeAiProvider = (provider: AiProvider) => {
+    setAiProvider(provider);
+    window.localStorage.setItem("listing-tool-ai-provider", provider);
+  };
 
   const variants = useMemo(
     () => sources.filter((source) => Boolean(source.parentId)),
@@ -626,6 +724,170 @@ export default function CharmManager({
     setDrafts((current) => [...current, ...missing.map(createDraft)]);
     setActiveTab("drafts");
     setMessage(`${missing.length} charm draft${missing.length === 1 ? "" : "s"} generated.`);
+  };
+
+  const requestAiVariantTitles = async (
+    count: number,
+    usedTitles: string[],
+  ) => {
+    if (!rootProduct) {
+      throw new Error("The parent product has not loaded yet.");
+    }
+
+    const model = rootProduct.models[0]?.model?.trim();
+    if (!model) {
+      throw new Error("The parent product must have a phone model before creating charm variants.");
+    }
+
+    const response = await fetch("/api/ai/variant-titles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parentTitle: rootProduct.productName,
+        category: rootProduct.category,
+        model,
+        theme: rootProduct.theme,
+        productType: rootProduct.type,
+        count,
+        provider: aiProvider,
+        usedTitles,
+        forCharm: true,
+      }),
+    });
+    const result = (await response.json()) as AiVariantTitlesResponse;
+
+    if (!response.ok || !Array.isArray(result.titles)) {
+      throw new Error(result.error || "Unable to generate AI titles for charm variants.");
+    }
+
+    return result.titles
+      .map((title) => String(title || "").trim())
+      .filter(Boolean);
+  };
+
+  const createAiCharmVariants = async () => {
+    const count = Number(additionalVariantCount);
+
+    if (!Number.isInteger(count) || count < 1 || count > 50) {
+      setError("Enter between 1 and 50 additional charm variants.");
+      return;
+    }
+
+    if (!rootProduct) {
+      setError("The parent product has not loaded yet.");
+      return;
+    }
+
+    try {
+      setCreatingAiVariants(true);
+      setError(null);
+      setMessage(null);
+
+      const titles: string[] = [];
+      const usedTitleMap = new Map(
+        sources
+          .map((source) => source.productName.trim())
+          .filter(Boolean)
+          .map((title) => [title.toLowerCase(), title]),
+      );
+
+      while (titles.length < count) {
+        const batchCount = Math.min(10, count - titles.length);
+        let batchTitles: string[] = [];
+
+        for (let attempt = 1; attempt <= 3; attempt += 1) {
+          const generatedTitles = await requestAiVariantTitles(
+            batchCount,
+            [...usedTitleMap.values()],
+          );
+          const uniqueTitles = generatedTitles.filter((title) => {
+            const key = title.toLowerCase();
+            if (usedTitleMap.has(key)) return false;
+            usedTitleMap.set(key, title);
+            return true;
+          });
+
+          if (uniqueTitles.length === batchCount) {
+            batchTitles = uniqueTitles;
+            break;
+          }
+
+          uniqueTitles.forEach((title) => usedTitleMap.delete(title.toLowerCase()));
+        }
+
+        if (batchTitles.length !== batchCount) {
+          throw new Error("AI could not generate enough unique charm variant titles. Please try again.");
+        }
+
+        titles.push(...batchTitles);
+      }
+
+      const firstVariantNumber =
+        Math.max(
+          1,
+          ...sources.map((source) => Number(source.variantNumber) || 1),
+        ) + 1;
+      let nextGroupNumber = highestGroupNumber(sources);
+      let charmsCreated = 0;
+      const failures: string[] = [];
+
+      for (const [index, title] of titles.entries()) {
+        const variantNumber = firstVariantNumber + index;
+        nextGroupNumber += 1;
+
+        try {
+          const variantResult = await apiRequest<CreateProductResponse>(
+            "/products",
+            {
+              method: "POST",
+              body: JSON.stringify(
+                createProductVariantPayload({
+                  parent: rootProduct,
+                  title,
+                  variantNumber,
+                  groupNumber: nextGroupNumber,
+                }),
+              ),
+            },
+          );
+
+          await apiRequest<CharmResponse>(
+            `/products/${encodeURIComponent(variantResult.product.id)}/with-charm`,
+            { method: "POST", body: JSON.stringify({}) },
+          );
+          charmsCreated += 1;
+        } catch (creationError) {
+          failures.push(
+            `V${variantNumber}: ${
+              creationError instanceof Error
+                ? creationError.message
+                : "Unable to create this charm variant."
+            }`,
+          );
+        }
+      }
+
+      await load(true);
+      setActiveTab("stored");
+
+      if (failures.length) {
+        setError(
+          `${charmsCreated} charm variant${charmsCreated === 1 ? "" : "s"} created; ${failures.length} failed. ${failures[0]}`,
+        );
+      } else {
+        setMessage(
+          `${charmsCreated} AI-named charm variant${charmsCreated === 1 ? "" : "s"} created and stored.`,
+        );
+      }
+    } catch (creationError) {
+      setError(
+        creationError instanceof Error
+          ? creationError.message
+          : "Unable to create AI charm variants.",
+      );
+    } finally {
+      setCreatingAiVariants(false);
+    }
   };
 
   const storeDraftRequest = (draft: CharmDraft) =>
@@ -910,6 +1172,67 @@ export default function CharmManager({
           <Stat label="Product variants" value={String(variants.length)} helper="Available sources" icon={<Layers3 size={20} />} />
           <Stat label="Charm drafts" value={String(drafts.length)} helper="Ready for review" icon={<Wand2 size={20} />} />
           <Stat label="Stored charms" value={String(charms.length)} helper="Saved separately" icon={<Database size={20} />} />
+        </section>
+
+        <section className="mb-6 overflow-hidden rounded-2xl border border-violet-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-4 p-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-xl bg-violet-50 p-2.5 text-violet-600">
+                  <Wand2 size={18} />
+                </span>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Add AI charm variants</p>
+                  <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                    AI writes unique titles, then the app creates the next numbered variants and stores their charms automatically.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-[150px_160px_auto] sm:items-end">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold text-slate-600">How many more?</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="50"
+                  step="1"
+                  value={additionalVariantCount}
+                  onChange={(event) => setAdditionalVariantCount(event.target.value)}
+                  disabled={creatingAiVariants}
+                  aria-label="Number of additional charm variants"
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100 disabled:bg-slate-100"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold text-slate-600">AI provider</span>
+                <select
+                  value={aiProvider}
+                  onChange={(event) => changeAiProvider(event.target.value as AiProvider)}
+                  disabled={creatingAiVariants}
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 outline-none transition focus:border-violet-500 focus:ring-4 focus:ring-violet-100 disabled:bg-slate-100"
+                >
+                  <option value="gemini">Google Gemini</option>
+                  <option value="openai">OpenAI</option>
+                </select>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => void createAiCharmVariants()}
+                disabled={creatingAiVariants || !rootProduct}
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-bold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {creatingAiVariants ? <RefreshCw size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                {creatingAiVariants ? "Creating..." : "Generate & create"}
+              </button>
+            </div>
+          </div>
+          <p className="border-t border-violet-100 bg-violet-50/50 px-5 py-3 text-[11px] leading-5 text-violet-800">
+            You can add up to 50 at once. A request for 30 is generated in three AI batches, avoiding duplicate titles.
+          </p>
         </section>
 
         <section className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

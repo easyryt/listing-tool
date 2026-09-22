@@ -20,16 +20,20 @@ export type GeneratedProductDetails = {
   thumbnailUrl: string;
 };
 
+export type AiProvider = "gemini" | "openai";
+
 type Props = {
   category: string;
   model: string;
   theme: string;
   productType: string;
+  provider: AiProvider;
   usedDesignCodes: string[];
   onCategoryChange: (value: string) => void;
   onModelChange: (value: string) => void;
   onThemeChange: (value: string) => void;
   onProductTypeChange: (value: string) => void;
+  onProviderChange: (value: AiProvider) => void;
   onGenerated: (data: GeneratedProductDetails) => void;
 };
 
@@ -40,11 +44,13 @@ export default function AiProductScanner({
   model,
   theme,
   productType,
+  provider,
   usedDesignCodes,
   onCategoryChange,
   onModelChange,
   onThemeChange,
   onProductTypeChange,
+  onProviderChange,
   onGenerated,
 }: Props) {
   const [image, setImage] = useState<File | null>(null);
@@ -116,6 +122,7 @@ export default function AiProductScanner({
       body.append("model", model);
       body.append("theme", theme);
       body.append("productType", productType);
+      body.append("provider", provider);
       body.append("usedDesignCodes", JSON.stringify(usedDesignCodes));
       body.append("titleCount", "1");
 
@@ -221,7 +228,23 @@ export default function AiProductScanner({
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+          <label className="block">
+            <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+              AI provider
+            </span>
+            <select
+              value={provider}
+              onChange={(event) =>
+                onProviderChange(event.target.value as AiProvider)
+              }
+              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI</option>
+            </select>
+          </label>
+
           <AssistantSelect
             label="Category"
             value={category}
@@ -268,7 +291,7 @@ export default function AiProductScanner({
 
             <p className="mt-1 text-sm text-slate-500">
               AI will use the selected phone model and product details, not
-              guess them from the image.
+              guess them from the image. Using {provider === "openai" ? "OpenAI" : "Google Gemini"}.
             </p>
 
             <button
