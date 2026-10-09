@@ -89,10 +89,9 @@ assert.match(helpers.generalProductBatchError([{ ...rows[0], image1: "" }]), /ho
 assert.match(helpers.generalProductBatchError([{ ...rows[0], price: "400" }]), /exceed MRP/);
 assert.match(helpers.generalProductBatchError([{ ...rows[0], wrongDefectiveReturnsPrice: "65" }]), /exceed Meesho/);
 assert.equal(helpers.generalProductBatchError([{ ...rows[0], inventory: "0" }]), "");
-assert.equal(helpers.generalProductExportCategoryError(rows, false), "");
-assert.match(helpers.generalProductExportCategoryError([{ ...rows[0], category: "Hair Accessories" }], false), /matching marketplace category template/);
-assert.equal(helpers.generalProductExportCategoryError([{ ...rows[0], category: "Hair Accessories" }], true), "");
-assert.match(helpers.generalProductExportCategoryError([rows[0], { ...rows[1], category: "Hair Accessories" }], true), /one category/);
+assert.equal(helpers.generalProductExportCategoryError(rows), "");
+assert.equal(helpers.generalProductExportCategoryError([{ ...rows[0], category: "Hair Accessories" }]), "", "Every category uses the shared template without an upload");
+assert.match(helpers.generalProductExportCategoryError([rows[0], { ...rows[1], category: "Hair Accessories" }]), /one category/);
 let nextId = 0;
 const createId = () => `added-${++nextId}`;
 const stored = { ...override, databaseId: "saved-parent", databaseRevision: 7 };

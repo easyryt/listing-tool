@@ -6,8 +6,8 @@ export type GeneralProductColumn = {
   numeric?: boolean;
 };
 
-// Seller-editable columns, in the order of the supplied Beads & Charms workbook.
-// Category/product type remain in product setup, not in this category's sheet.
+// Supported seller fields in the shared public/meesho-template.xlsx column order.
+// Phone-only Compatible Models and dimensions are not shown in general-product review.
 export const GENERAL_PRODUCT_TEMPLATE_COLUMNS: GeneralProductColumn[] = [
   { field: "productName", label: "Product Name" },
   { field: "variation", label: "Variation" },
@@ -28,9 +28,12 @@ export const GENERAL_PRODUCT_TEMPLATE_COLUMNS: GeneralProductColumn[] = [
   { field: "importer", label: "Importer Name" },
   { field: "importerAddress", label: "Importer Address" },
   { field: "importerPincode", label: "Importer Pincode" },
+  { field: "color", label: "Color" },
   { field: "genericName", label: "Generic Name" },
-  { field: "includedComponents", label: "Included Components" },
+  { field: "material", label: "Material" },
   { field: "quantity", label: "Net Quantity (N)", numeric: true },
+  { field: "theme", label: "Theme" },
+  { field: "productType", label: "Type" },
   { field: "image1", label: "Image 1 (Front)" },
   { field: "image2", label: "Image 2" },
   { field: "image3", label: "Image 3" },
@@ -43,19 +46,19 @@ export const GENERAL_PRODUCT_TEMPLATE_COLUMNS: GeneralProductColumn[] = [
 ];
 
 const ADDITIONAL_COLUMNS: GeneralProductColumn[] = [
-  { field: "color", label: "Color" }, { field: "material", label: "Material" },
-  { field: "theme", label: "Theme" }, { field: "productType", label: "Product Type" },
+  { field: "includedComponents", label: "Included Components" },
   { field: "length", label: "Length" }, { field: "width", label: "Width" },
 ];
 const ALIASES: Partial<Record<GeneralProductColumn["field"], string[]>> = {
   wrongDefectiveReturnsPrice: ["wrong defective returns price"], gst: ["gst"], hsn: ["hsn"],
   weight: ["net weight"], quantity: ["net quantity"], image1: ["image 1"],
-  styleId: ["style id"], sku: ["seller sku id"],
+  styleId: ["style id"], sku: ["seller sku id"], brand: ["brand"],
+  productType: ["product type"], length: ["product length"], width: ["product width"],
 };
 
 export function generalProductColumnForHeader(value: string): GeneralProductColumn | undefined {
   const label = value.split(/\r?\n/).find((line) => line.trim())?.replace(/\s+/g, " ").trim() || "";
-  const header = label.toLowerCase();
+  const header = label.toLowerCase().replace(/\s*\(/g, " (");
   const definition = [...GENERAL_PRODUCT_TEMPLATE_COLUMNS, ...ADDITIONAL_COLUMNS].find((column) =>
     [column.label.toLowerCase(), ...(ALIASES[column.field] || [])].some((alias) =>
       header === alias || header.startsWith(`${alias} (`),

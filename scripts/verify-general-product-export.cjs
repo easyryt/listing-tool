@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Standalone CommonJS verification harness. */
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -7,195 +8,155 @@ const ExcelJS = require("exceljs");
 
 async function verify() {
   const projectRoot = path.resolve(__dirname, "..");
-  const templatePath = path.join(projectRoot, "public", "general-products-template.xlsx");
+  const templatePath = path.join(projectRoot, "public", "meesho-template.xlsx");
   const template = fs.readFileSync(templatePath);
-  const source = fs.readFileSync(path.join(projectRoot, "lib", "general-product-excel.ts"), "utf8");
-  const compiled = ts.transpileModule(source, {
-    compilerOptions: {
-      module: ts.ModuleKind.CommonJS,
-      target: ts.ScriptTarget.ES2022,
-      esModuleInterop: true,
-    },
-  }).outputText;
+  let responseBuffer = template;
+  let responseOk = true;
   let downloadedBlob;
+  let downloadedName;
+  function compile(filename) {
+    return ts.transpileModule(fs.readFileSync(path.join(projectRoot, filename), "utf8"), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+    }).outputText;
+  }
   const columnsModule = { exports: {} };
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(projectRoot, "lib", "general-product-columns.ts"), "utf8"), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
-  }).outputText, { module: columnsModule, exports: columnsModule.exports });
+  vm.runInNewContext(compile("lib/general-product-columns.ts"), { module: columnsModule, exports: columnsModule.exports });
   const exporter = { exports: {} };
-  vm.runInNewContext(compiled, {
-    exports: exporter.exports,
-    module: exporter,
-    Blob,
+  vm.runInNewContext(compile("lib/general-product-excel.ts"), {
+    exports: exporter.exports, module: exporter, Blob,
     fetch: async (url) => {
-      assert.equal(url, "/general-products-template.xlsx");
-      return { ok: true, arrayBuffer: async () => template };
+      assert.equal(url, "/meesho-template.xlsx", "Always use the same bundled workbook as phone listings");
+      return { ok: responseOk, arrayBuffer: async () => responseBuffer };
     },
     require: (name) => name === "file-saver"
-      ? { saveAs: (blob) => { downloadedBlob = blob; } }
+      ? { saveAs: (blob, name) => { downloadedBlob = blob; downloadedName = name; } }
       : name === "./general-product-columns" ? columnsModule.exports : require(name),
   });
 
-  const product = Object.fromEntries([
-    "id", "productName", "category", "variation", "price", "wrongDefectiveReturnsPrice",
-    "mrp", "gst", "hsn", "weight", "inventory", "country", "manufacturer",
-    "manufacturerAddress", "manufacturerPincode", "packer", "packerAddress",
-    "packerPincode", "importer", "importerAddress", "importerPincode", "color",
-    "genericName", "includedComponents", "material", "quantity", "length", "width",
-    "theme", "productType", "image1", "image2", "image3", "image4", "styleId", "sku",
-    "brand", "groupId", "description",
-  ].map((field) => [field, ""]));
-  Object.assign(product, {
-    id: "verification-parent",
-    productName: "Decorative Craft Beads for Jewellery Making and Art Projects",
-    category: "Beads & Charms",
-    genericName: "Beads & Charms",
-    includedComponents: "30 craft beads",
-    variation: "Free Size",
-    price: "99",
-    wrongDefectiveReturnsPrice: "98",
-    mrp: "199",
-    gst: "18",
-    hsn: "003296",
-    quantity: "30",
-    image1: "https://example.com/craft-beads.png",
-    styleId: "CRAFTBEADS",
-    sku: "CRAFTBEADS-V1",
-    brand: "Example",
-    groupId: "1",
-    description: "Decorative beads for craft projects.",
-  });
-
-  await exporter.exports.exportGeneralProductExcel([product]);
-  assert.ok(downloadedBlob, "Export should download a workbook");
-
-  const output = new ExcelJS.Workbook();
-  await output.xlsx.load(Buffer.from(await downloadedBlob.arrayBuffer()));
   const input = new ExcelJS.Workbook();
   await input.xlsx.load(template);
-  assert.deepEqual(output.worksheets.map((sheet) => sheet.name), input.worksheets.map((sheet) => sheet.name));
-  const previewColumns = await exporter.exports.readGeneralProductTemplateColumns({ arrayBuffer: async () => template });
-  assert.deepEqual(JSON.parse(JSON.stringify(previewColumns)), JSON.parse(JSON.stringify(columnsModule.exports.GENERAL_PRODUCT_TEMPLATE_COLUMNS)), "Preview field names and order match the included Excel sheet");
-  assert.equal(previewColumns.length, 31);
-  assert.ok(previewColumns.every(({ field }) => !["category", "productType", "length", "width", "color", "material", "theme"].includes(field)));
-  if (process.argv[2]) {
-    const suppliedTemplate = fs.readFileSync(path.resolve(process.argv[2]));
-    const suppliedColumns = await exporter.exports.readGeneralProductTemplateColumns({ arrayBuffer: async () => suppliedTemplate });
-    assert.deepEqual(JSON.parse(JSON.stringify(suppliedColumns)), JSON.parse(JSON.stringify(previewColumns)), "The supplied workbook and included template have the same preview columns");
-  }
-  assert.equal(columnsModule.exports.generalProductColumnForHeader("\n\nERROR STATUS\n\nFor system use"), undefined, "System fields are never preview/edit columns");
-  assert.equal(columnsModule.exports.generalProductColumnForHeader("\n\nSeller SKU ID\n\nExplanation").field, "sku");
-  assert.equal(columnsModule.exports.generalProductColumnForHeader("Net Weight (g)").numeric, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(columnsModule.exports.generalProductPreviewColumns([
-    { field: "width", label: "Width" }, { field: "sku", label: "SKU ID" }, { field: "length", label: "Length" },
-  ]))), [{ field: "sku", label: "SKU ID" }], "Dimensions are excluded even if another template contains them");
+  const originalListing = input.getWorksheet("Mobile-Cases---Covers-Fill this");
+  assert.ok(originalListing);
+  const previewColumns = await exporter.exports.readGeneralProductTemplateColumns();
+  const plain = (value) => JSON.parse(JSON.stringify(value));
+  assert.deepEqual(plain(previewColumns), plain(columnsModule.exports.GENERAL_PRODUCT_TEMPLATE_COLUMNS), "Review fields match the shared workbook's headers and order");
+  assert.equal(previewColumns.length, 34);
+  assert.ok(previewColumns.every(({ field }) => !["length", "width", "includedComponents"].includes(field)));
+  assert.equal(columnsModule.exports.generalProductColumnForHeader("\n\nERROR STATUS\n\nFor system use"), undefined);
+  assert.equal(columnsModule.exports.generalProductColumnForHeader("Product Width(cm)").field, "width");
+  assert.equal(columnsModule.exports.generalProductColumnForHeader("Type").field, "productType");
+  assert.equal(columnsModule.exports.generalProductColumnForHeader("Brand").field, "brand");
 
-  const listing = output.getWorksheet("Beads---Charms-Fill this");
-  assert.ok(listing, "Must use the listing tab after the Instructions tab");
-  for (const [index, column] of previewColumns.entries()) {
-    assert.equal(listing.getCell(5, index + 4).text, product[column.field], `${column.label} preview value must land in the matching Excel column`);
+  // Independent, explicit positions from the actual shared template.
+  const mapping = {
+    productName: "D", variation: "E", price: "F", wrongDefectiveReturnsPrice: "G", mrp: "H", gst: "I",
+    hsn: "J", weight: "K", inventory: "L", country: "M", manufacturer: "N", manufacturerAddress: "O",
+    manufacturerPincode: "P", packer: "Q", packerAddress: "R", packerPincode: "S", importer: "T",
+    importerAddress: "U", importerPincode: "V", color: "W", genericName: "Y", material: "Z", quantity: "AA",
+    length: "AB", width: "AC", theme: "AD", productType: "AE", image1: "AF", image2: "AG", image3: "AH",
+    image4: "AI", styleId: "AJ", sku: "AK", brand: "AL", groupId: "AM", description: "AN",
+  };
+  const numericFields = new Set(["price", "wrongDefectiveReturnsPrice", "mrp", "gst", "weight", "inventory", "quantity"]);
+  const product = Object.fromEntries(Object.keys(mapping).map((field) => [field, ""]));
+  Object.assign(product, {
+    id: "verification-parent", category: "Beads & Charms",
+    productName: "Universal Transparent Mobile Case Lanyard Insert Tabs Phone Charms Holder (Pack of 10)",
+    variation: "Free Size", genericName: "Beads & Charms", includedComponents: "10 Phone Charms Holders",
+    price: "64", wrongDefectiveReturnsPrice: "63", mrp: "399", gst: "18", hsn: "003296", weight: "10.5",
+    inventory: "0", country: "India", manufacturer: "Example Manufacturer", manufacturerAddress: "Delhi",
+    manufacturerPincode: "001234", packer: "Example Packer", packerAddress: "Delhi", packerPincode: "001235",
+    importer: "Not Applicable", importerAddress: "Not Applicable", importerPincode: "001236", color: "Transparent",
+    material: "Plastic", quantity: "10", theme: "Solid", productType: "Phone Charms Holder",
+    image1: "https://example.com/front.png", image2: "https://example.com/second.png",
+    image3: "https://example.com/third.png", image4: "https://example.com/fourth.png",
+    styleId: "MBRO-CHM-HLDR-GLD-10PC-V1", sku: "MBRO-CHM-HLDR-GLD-10PC-V1", brand: "Example",
+    groupId: "1", description: "Transparent tabs for attaching phone charms.",
+  });
+  async function exportRows(rows, name) {
+    downloadedBlob = undefined;
+    await exporter.exports.exportGeneralProductExcel(rows, name);
+    assert.ok(downloadedBlob);
+    assert.equal(downloadedBlob.type, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(Buffer.from(await downloadedBlob.arrayBuffer()));
+    return workbook;
   }
-  assert.equal(listing.getCell("D5").value, product.productName);
-  assert.equal(listing.getCell("F5").value, 99);
-  assert.equal(listing.getCell("G5").value, 98);
-  assert.equal(listing.getCell("J5").value, "003296", "HSN identifiers must retain leading zeroes");
-  assert.equal(listing.getCell("W5").value, "Beads & Charms");
-  assert.equal(listing.getCell("X5").value, "30 craft beads");
-  assert.equal(listing.getCell("Y5").value, 30);
-  assert.equal(listing.getCell("Z5").value, product.image1);
-  assert.equal(listing.getCell("AD5").value, "CRAFTBEADS");
-  assert.equal(listing.getCell("AE5").value, "CRAFTBEADS-V1");
-  assert.equal(listing.getCell("AF5").value, "Example");
-  assert.equal(listing.getCell("AG5").value, "1", "Numeric group identifier matches preview");
-  assert.equal(listing.getCell("AH5").value, product.description);
-  assert.equal(listing.getCell("D6").value, null, "Must remove unused sample listings");
-  assert.equal(output.getWorksheet("Instructions").getCell("A3").text, input.getWorksheet("Instructions").getCell("A3").text);
-  assert.deepEqual(listing.getCell("E5").dataValidation, input.getWorksheet("Beads---Charms-Fill this").getCell("E5").dataValidation);
-  assert.equal(output.getWorksheet("Validation Sheet").getCell("W3").value, "Beads & Charms");
+  function assertRows(workbook, rows) {
+    const listing = workbook.getWorksheet(originalListing.name);
+    for (const [index, row] of rows.entries()) {
+      for (const [field, column] of Object.entries(mapping)) {
+        const expected = numericFields.has(field) && row[field].trim() ? Number(row[field]) : row[field] || null;
+        assert.equal(listing.getCell(column + (index + 6)).value, expected, field + " at " + column + (index + 6));
+      }
+      assert.equal(listing.getCell("AO" + (index + 6)).value, row.brand, "Fill both Brand Name and Brand");
+      assert.equal(listing.getCell("X" + (index + 6)).value, null, "Never invent a phone model for a general product");
+    }
+    assert.equal(listing.getCell("D" + (rows.length + 6)).value, null, "Do not include unselected or stale rows");
+  }
+  function assertTemplatePreserved(workbook) {
+    assert.deepEqual(workbook.worksheets.map((sheet) => sheet.name), input.worksheets.map((sheet) => sheet.name));
+    const listing = workbook.getWorksheet(originalListing.name);
+    for (let row = 1; row <= 5; row += 1) {
+      for (let column = 1; column <= 41; column += 1) {
+        const actual = listing.getCell(row, column);
+        const original = originalListing.getCell(row, column);
+        if (original.formulaType) {
+          assert.equal(actual.formula, original.formula, "Preserve translated formulas when materializing shared formulas");
+          assert.equal(actual.value.result, original.value.result);
+        } else assert.deepEqual(actual.value, original.value, "Preserve header/tutorial/spacer rows");
+        assert.deepEqual(listing.getCell(row, column).style, originalListing.getCell(row, column).style);
+      }
+    }
+    assert.deepEqual(listing.model.merges, originalListing.model.merges);
+    assert.deepEqual(listing.views, originalListing.views);
+    assert.deepEqual(listing.dataValidations.model, originalListing.dataValidations.model, "Keep original dropdowns");
+    for (let column = 1; column <= 41; column += 1) assert.equal(listing.getColumn(column).width, originalListing.getColumn(column).width);
+  }
+
+  const output = await exportRows([product], "saved-selection.xlsx");
+  assert.equal(downloadedName, "saved-selection.xlsx");
+  assertRows(output, [product]);
+  assertTemplatePreserved(output);
 
   const variants = Array.from({ length: 30 }, (_, index) => ({
-    ...product,
-    id: `verification-variant-${index + 2}`,
-    groupId: String(index + 2),
-    productName: `Decorative Craft Beads for Art Projects Variant ${index + 2}`,
-    sku: `CRAFTBEADS-V${index + 2}`,
+    ...product, id: "verification-variant-" + (index + 2), groupId: String(index + 2),
+    productName: "Universal Transparent Lanyard Insert Tabs Phone Charms Holder Variant " + (index + 2) + " (Pack of 10)",
+    styleId: "MBRO-CHM-HLDR-GLD-10PC-V" + (index + 2), sku: "MBRO-CHM-HLDR-GLD-10PC-V" + (index + 2),
   }));
-  await exporter.exports.exportGeneralProductExcel([product, ...variants]);
-  const batch = new ExcelJS.Workbook();
-  await batch.xlsx.load(Buffer.from(await downloadedBlob.arrayBuffer()));
-  const batchListing = batch.getWorksheet("Beads---Charms-Fill this");
-  assert.equal(batchListing.getCell("AE35").value, "CRAFTBEADS-V31");
-  assert.equal(batchListing.getCell("D36").value, null);
-
-  const helperModule = { exports: {} };
-  vm.runInNewContext(ts.transpileModule(
-    fs.readFileSync(path.join(projectRoot, "lib", "general-product-listing.ts"), "utf8"),
-    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
-  ).outputText, { exports: helperModule.exports, module: helperModule });
-  const { codes } = helperModule.exports.parseGeneralProductImageName("MBRO-CHM-HLDR-GLD-10PC-V1.png");
-  const holderRows = Array.from({ length: 31 }, (_, index) => {
-    const sku = helperModule.exports.createGeneralProductSku(codes, "10", index + 1);
-    return {
-      ...product,
-      id: `holder-${index + 1}`,
-      groupId: String(index + 1),
-      productName: "Universal Transparent Mobile Case Lanyard Insert Tabs Phone Charms Holder (Pack of 10)",
-      genericName: "Beads & Charms",
-      quantity: "10",
-      includedComponents: "10 Phone Charms Holders",
-      styleId: sku,
-      sku,
-    };
-  });
-  await exporter.exports.exportGeneralProductExcel(holderRows);
-  const holderWorkbook = new ExcelJS.Workbook();
-  await holderWorkbook.xlsx.load(Buffer.from(await downloadedBlob.arrayBuffer()));
-  const holderListing = holderWorkbook.getWorksheet("Beads---Charms-Fill this");
-  for (let index = 0; index < holderRows.length; index += 1) {
-    const expectedSku = `MBRO-CHM-HLDR-GLD-10PC-V${index + 1}`;
-    assert.equal(holderListing.getCell(`AD${index + 5}`).value, expectedSku);
-    assert.equal(holderListing.getCell(`AE${index + 5}`).value, expectedSku);
-    assert.equal(holderListing.getCell(`Y${index + 5}`).value, 10);
-    assert.equal(holderListing.getCell(`AG${index + 5}`).value, String(index + 1));
-  }
-
-  const mixedProducts = [holderRows[0], { ...holderRows[1], price: "70" }, {
-    ...holderRows[0], id: "second-parent", quantity: "15", price: "84", wrongDefectiveReturnsPrice: "83",
-    productName: holderRows[0].productName.replace("Pack of 10", "Pack of 15"),
-    includedComponents: "15 Pcs of Charms Holder", groupId: "3",
-    sku: "MBRO-CHM-HLDR-GLD-15PC-V1", styleId: "MBRO-CHM-HLDR-GLD-15PC-V1",
+  const batchRows = [product, ...variants, {
+    ...product, id: "second-parent", category: "Hair Accessories", quantity: "15", price: "84", wrongDefectiveReturnsPrice: "83",
+    productName: "Green Decorative Hair Clips (Pack of 15)", genericName: "Hair Accessories", productType: "Hair Clips",
+    styleId: "SELLER-PARENT_001", sku: "SELLER-PARENT_001", groupId: "32",
   }];
-  await exporter.exports.exportGeneralProductExcel(mixedProducts);
-  const mixedWorkbook = new ExcelJS.Workbook();
-  await mixedWorkbook.xlsx.load(Buffer.from(await downloadedBlob.arrayBuffer()));
-  const mixedListing = mixedWorkbook.getWorksheet("Beads---Charms-Fill this");
-  assert.equal(mixedListing.getCell("F6").value, 70, "Keep edited variant pricing");
-  assert.equal(mixedListing.getCell("F7").value, 84);
-  assert.equal(mixedListing.getCell("G7").value, 83, "Export the actual returns price, not the phone listing discount");
-  assert.equal(mixedListing.getCell("Y7").value, 15);
-  assert.equal(mixedListing.getCell("AE7").value, "MBRO-CHM-HLDR-GLD-15PC-V1");
-  assert.equal(mixedListing.getCell("AG5").value, "1");
-  assert.equal(mixedListing.getCell("AG6").value, "2", "Variant has its own group");
-  assert.equal(mixedListing.getCell("AG7").value, "3");
-  assert.equal(mixedListing.getCell("D8").value, null);
+  const batch = await exportRows(batchRows);
+  assertRows(batch, batchRows);
+  assertTemplatePreserved(batch);
+  assertRows(await exportRows([variants[4], variants[9]]), [variants[4], variants[9]]);
+  assertRows(await exportRows([batchRows[31]]), [batchRows[31]]);
 
-  const customSkuRows = [
-    { ...holderRows[0], sku: "SELLER-PARENT_001", styleId: "SELLER-PARENT_001" },
-    { ...holderRows[1], sku: "SELLER-VARIANT_002", styleId: "SELLER-VARIANT_002" },
-  ];
-  await exporter.exports.exportGeneralProductExcel(customSkuRows);
-  const customWorkbook = new ExcelJS.Workbook();
-  await customWorkbook.xlsx.load(Buffer.from(await downloadedBlob.arrayBuffer()));
-  const customListing = customWorkbook.getWorksheet("Beads---Charms-Fill this");
-  assert.equal(customListing.getCell("AD5").value, "SELLER-PARENT_001");
-  assert.equal(customListing.getCell("AE5").value, "SELLER-PARENT_001");
-  assert.equal(customListing.getCell("AD6").value, "SELLER-VARIANT_002");
-  assert.equal(customListing.getCell("AE6").value, "SELLER-VARIANT_002");
-
-  console.log("General product export verified: multiple parents and pack sizes, editable variant prices, 30 variants, matching  IDs, exact columns, numeric prices, identifiers, dropdowns, and unchanged reference tabs.");
+  // Exercise stale samples and shared system formulas in memory, never edit the source workbook.
+  const fixture = new ExcelJS.Workbook();
+  await fixture.xlsx.load(template);
+  const fixtureSheet = fixture.getWorksheet(originalListing.name);
+  fixtureSheet.getCell("D6").value = "Old sample";
+  fixtureSheet.getCell("D7").value = "Unused sample";
+  fixtureSheet.getCell("AK7").value = "OLD-SAMPLE";
+  fixtureSheet.getCell("B6").value = { formula: 'IF(D6="","",LEN(D6))', shareType: "shared", ref: "B6:B9", result: 10 };
+  for (let row = 7; row <= 9; row += 1) fixtureSheet.getCell("B" + row).value = { sharedFormula: "B6", result: 10 };
+  responseBuffer = await fixture.xlsx.writeBuffer();
+  const cleaned = await exportRows([product]);
+  assertRows(cleaned, [product]);
+  assert.equal(cleaned.getWorksheet(originalListing.name).getCell("AK7").value, null);
+  assert.equal(cleaned.getWorksheet(originalListing.name).getCell("B9").formula, 'IF(D9="","",LEN(D9))');
+  responseBuffer = template;
+  responseOk = false;
+  await assert.rejects(exporter.exports.exportGeneralProductExcel([product]), /Unable to load meesho-template.xlsx/);
+  await assert.rejects(exporter.exports.exportGeneralProductExcel([]), /at least one product/);
+  assert.deepEqual(fs.readFileSync(templatePath), template, "Never alter the original shared template");
+  for (const filename of ["components/GeneralProductBuilder.tsx", "components/GeneralProductExportDialog.tsx"]) {
+    const source = fs.readFileSync(path.join(projectRoot, filename), "utf8");
+    assert.doesNotMatch(source, /accept=[^\n]*\.xlsx|chooseTemplate|templateFile|setTemplate/, "General-product UI has no template chooser");
+  }
+  console.log("General-product export verified: shared meesho-template.xlsx, row 6, 34 review fields, exact columns, 30 variants, custom SKUs, selected-only rows, other categories without uploads, numeric values, headers, dropdowns, sample cleanup and shared formulas.");
 }
-
-verify().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+verify().catch((error) => { console.error(error); process.exitCode = 1; });

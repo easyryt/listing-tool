@@ -122,12 +122,9 @@ export function appendGeneralProductVariants({ item, titles, batch, occupiedProd
   return result;
 }
 
-export function generalProductExportCategoryError(rows: GeneralProductListing[], hasCategoryTemplate: boolean) {
+export function generalProductExportCategoryError(rows: GeneralProductListing[]) {
   const categories = new Set(rows.map((row) => row.category.trim().toLowerCase()));
   if (categories.size > 1) return "A marketplace workbook supports one category. Keep each category in a separate export batch.";
-  if (!hasCategoryTemplate && categories.size && !categories.has("beads & charms")) {
-    return "Upload the matching marketplace category template in Product details. The included template is for Beads & Charms.";
-  }
   return "";
 }
 

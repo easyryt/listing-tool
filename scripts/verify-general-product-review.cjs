@@ -17,7 +17,7 @@ function load(filename) {
 const { GENERAL_PRODUCT_TEMPLATE_COLUMNS: template } = load("lib/general-product-columns.ts");
 const review = load("lib/general-product-review.ts");
 const fields = (columns) => Array.from(columns, (column) => column.field);
-assert.equal(template.length, 31);
+assert.equal(template.length, 34);
 assert.deepEqual(fields(review.generalProductReviewColumns(template, "all")), fields(template), "All fields keep workbook order");
 assert.deepEqual(fields(review.generalProductReviewColumns(template, "quick")), ["productName", "price", "inventory", "quantity", "sku", "groupId"]);
 assert.deepEqual(fields(review.generalProductReviewColumns(template, "images")), ["productName", "image1", "image2", "image3", "image4"]);
@@ -27,8 +27,8 @@ assert.ok(fields(review.generalProductReviewColumns(template, "details")).includ
 const sections = review.generalProductReviewSections(template);
 assert.equal(sections.length, 4);
 const editorFields = sections.flatMap((section) => fields(section.columns));
-assert.equal(editorFields.length, 31);
-assert.equal(new Set(editorFields).size, 31, "Guided editor includes each workbook field once");
+assert.equal(editorFields.length, 34);
+assert.equal(new Set(editorFields).size, 34, "Guided editor includes each workbook field once");
 assert.deepEqual([...editorFields].sort(), fields(template).sort());
 const custom = [{ field: "inventory", label: "Stock", numeric: true }, { field: "image4", label: "Extra image" }, { field: "length", label: "Length" }];
 assert.deepEqual(fields(review.generalProductReviewColumns(custom, "all")), ["inventory", "image4"]);

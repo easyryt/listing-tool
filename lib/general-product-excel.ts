@@ -87,16 +87,16 @@ function excelValue(value: string) {
 }
 
 type ExportField = Exclude<keyof GeneralProductListing, "id">;
-type ColumnMap = Partial<Record<ExportField, string>>;
+type ColumnMap = Partial<Record<ExportField, string[]>>;
 
 function columnsFromTemplate(worksheet: Worksheet) {
-  const found = new Map<ExportField, GeneralProductColumn & { column: string; index: number }>();
+  const found = new Map<number, GeneralProductColumn & { column: string; index: number }>();
   worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
     if (rowNumber > 4) return;
     row.eachCell({ includeEmpty: false }, (cell, index) => {
       const definition = generalProductColumnForHeader(cell.text);
-      if (definition && !found.has(definition.field)) {
-        found.set(definition.field, { ...definition, column: cell.address.replace(/\d+$/, ""), index });
+      if (definition && !found.has(index)) {
+        found.set(index, { ...definition, column: cell.address.replace(/\d+$/, ""), index });
       }
     });
   });
@@ -104,21 +104,36 @@ function columnsFromTemplate(worksheet: Worksheet) {
 }
 
 function columnMapFromTemplate(worksheet: Worksheet): ColumnMap {
-  return Object.fromEntries(columnsFromTemplate(worksheet).map(({ field, column }) => [field, column]));
+  const columns: ColumnMap = {};
+  for (const { field, column } of columnsFromTemplate(worksheet)) {
+    (columns[field] ??= []).push(column);
+  }
+  return columns;
 }
 
-export async function readGeneralProductTemplateColumns(file: File): Promise<GeneralProductColumn[]> {
+async function loadGeneralProductTemplate() {
   const ExcelJS = (await import("exceljs")).default;
+  const response = await fetch("/meesho-template.xlsx");
+  if (!response.ok) throw new Error("Unable to load meesho-template.xlsx. Please try exporting again.");
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(await file.arrayBuffer());
+  await workbook.xlsx.load(await response.arrayBuffer());
   const supported = workbook.worksheets.filter((sheet) => {
     const map = columnMapFromTemplate(sheet);
     return sheet.state === "visible" && map.productName && map.sku;
   });
   const sheet = supported.find((entry) => /fill\s*this/i.test(entry.name))
     || supported.find((entry) => !/example|sample/i.test(entry.name)) || supported[0];
-  if (!sheet) throw new Error("Choose a marketplace listing template containing Product Name and SKU ID columns.");
-  return generalProductPreviewColumns(columnsFromTemplate(sheet).map(({ field, label, numeric }) => ({ field, label, numeric })));
+  if (!sheet) throw new Error("meesho-template.xlsx must contain Product Name and SKU ID columns.");
+  return { workbook, worksheet: sheet, columns: columnMapFromTemplate(sheet) };
+}
+
+export async function readGeneralProductTemplateColumns(): Promise<GeneralProductColumn[]> {
+  const { worksheet } = await loadGeneralProductTemplate();
+  const unique = new Map<ExportField, GeneralProductColumn>();
+  for (const { field, label, numeric } of columnsFromTemplate(worksheet)) {
+    if (!unique.has(field)) unique.set(field, { field, label, numeric });
+  }
+  return generalProductPreviewColumns([...unique.values()]);
 }
 
 function writeCell(
@@ -128,61 +143,31 @@ function writeCell(
   value: string,
   numeric = false,
 ) {
-  const column = columns[field];
-  if (!column) return;
-  row.getCell(column).value = numeric ? excelValue(value) : value;
+  for (const column of columns[field] || []) {
+    row.getCell(column).value = value.trim() ? (numeric ? excelValue(value) : value) : null;
+  }
 }
 
 export async function exportGeneralProductExcel(
   products: GeneralProductListing[],
   fileName = "general-product-listings.xlsx",
-  templateFile?: File | null,
 ) {
   if (!products.length) {
     throw new Error("Create at least one product or variant before exporting.");
   }
 
-  const ExcelJS = (await import("exceljs")).default;
-  let templateBuffer: ArrayBuffer;
-
-  if (templateFile) {
-    templateBuffer = await templateFile.arrayBuffer();
-  } else {
-    const response = await fetch("/general-products-template.xlsx");
-    if (!response.ok) throw new Error("Unable to load the listing template.");
-    templateBuffer = await response.arrayBuffer();
-  }
-
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(templateBuffer);
-
-  const supportedSheets = workbook.worksheets
-    .map((worksheet) => ({ worksheet, columns: columnMapFromTemplate(worksheet) }))
-    .filter(({ worksheet, columns }) =>
-      worksheet.state === "visible" && columns.productName && columns.sku,
-    );
-  const listingSheet =
-    supportedSheets.find(({ worksheet }) => /fill\s*this/i.test(worksheet.name)) ||
-    supportedSheets.find(({ worksheet }) => !/example|sample/i.test(worksheet.name)) ||
-    supportedSheets[0];
-
-  if (!listingSheet) {
-    throw new Error(
-      "This workbook is not a supported listing template. Upload the marketplace category template that contains Product Name and SKU ID columns.",
-    );
-  }
-
-  const { worksheet, columns } = listingSheet;
+  const { workbook, worksheet, columns } = await loadGeneralProductTemplate();
   materializeSharedFormulas(worksheet);
 
-  const firstDataRow = 5;
+  // Match the phone exporter: four header/tutorial rows, then a blank spacer.
+  const firstDataRow = 6;
   const existingDataLastRow = Array.from(
     { length: Math.max(worksheet.rowCount - firstDataRow + 1, 0) },
     (_, index) => firstDataRow + index,
   ).reduce((lastRow, candidate) => {
     const title = worksheet
       .getRow(candidate)
-      .getCell(columns.productName as string)
+      .getCell(columns.productName![0])
       .text.trim();
 
     return title ? candidate : lastRow;
@@ -238,7 +223,7 @@ export async function exportGeneralProductExcel(
   // Marketplace templates often include one or two filled sample rows. Remove
   // only the remaining source rows in the listing columns, while leaving their
   // validation rules and all system columns intact.
-  const populatedColumns = Array.from(new Set(Object.values(columns)));
+  const populatedColumns = Array.from(new Set(Object.values(columns).flat()));
   for (let clearRow = rowNumber; clearRow <= existingDataLastRow; clearRow += 1) {
     const row = worksheet.getRow(clearRow);
     for (const column of populatedColumns) {

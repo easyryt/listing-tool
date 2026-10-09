@@ -18,7 +18,6 @@ import {
 
 import {
   exportGeneralProductExcel,
-  readGeneralProductTemplateColumns,
   type GeneralProductListing,
 } from "@/lib/general-product-excel";
 import {
@@ -45,7 +44,6 @@ import GeneralProductImages from "./GeneralProductImages";
 import { generalProductImageSource } from "@/lib/general-product-review";
 import { generateGeneralProductVariantTitles } from "@/lib/general-product-variant-generation";
 import { generalProductsRequest, saveGeneralProductBatch, type SavedGeneralProduct } from "@/lib/general-products-api";
-import { GENERAL_PRODUCT_TEMPLATE_COLUMNS, type GeneralProductColumn } from "@/lib/general-product-columns";
 import { loadCategoryProducts, type GeneralProductCatalogResponse } from "@/lib/general-product-catalog";
 
 type AiProvider = "gemini" | "openai";
@@ -303,9 +301,6 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
     getServerProviderSnapshot,
   );
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [templateFile, setTemplateFile] = useState<File | null>(null);
-  const [templateColumns, setTemplateColumns] = useState<GeneralProductColumn[]>(GENERAL_PRODUCT_TEMPLATE_COLUMNS);
-  const [isReadingTemplate, setIsReadingTemplate] = useState(false);
   const [previewUrl, setPreviewUrl] = useState("");
   const [variantCount, setVariantCount] = useState("1");
   const [isScanning, setIsScanning] = useState(false);
@@ -329,7 +324,7 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
   };
   const missingSelection = selectionError(selections);
   const categoryOptions = GENERAL_PRODUCT_CATEGORIES.find((category) => category.name === draft.category);
-  const busy = isScanning || isGeneratingVariants || isCreatingVariants || isExporting || isGeneratingBatch || isSavingDatabase || isLoadingDatabase || isReadingTemplate;
+  const busy = isScanning || isGeneratingVariants || isCreatingVariants || isExporting || isGeneratingBatch || isSavingDatabase || isLoadingDatabase;
   const availableVariants = Math.max(0, GENERAL_PRODUCT_VARIANT_LIMIT - variants.length);
   const maxNewVariants = Math.min(50, availableVariants);
   const isStoredProduct = !!batch.find((item) => item.draft.id === editingProductId)?.databaseId;
@@ -356,7 +351,7 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
     return () => { cancelled = true; controller.abort(); };
   }, [savedProductId, initialStep, loadAttempt]);
 
-  const hasLocalEdits = batch.length > 0 || !!imageFile || !!templateFile || batchImageFiles.length > 0 || variants.length > 0
+  const hasLocalEdits = batch.length > 0 || !!imageFile || batchImageFiles.length > 0 || variants.length > 0
     || !!productContext.trim() || skuOverride !== null || skuCodes.brandCode !== GENERAL_PRODUCT_DEFAULT_CODES.brandCode
     || !!skuCodes.categoryCode || !!skuCodes.productCode || !!skuCodes.colorCode
     || Object.entries(DEFAULT_DRAFT).some(([field, value]) => draft[field as EditableField] !== value);
@@ -539,25 +534,6 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
       changeQuantity(fileDetails.quantity);
       setNotice("Pack quantity and SKU codes filled from the image filename. Confirm your product selections, then generate the title.");
     }
-  };
-
-  const chooseTemplate = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith(".xlsx")) {
-      setError("Choose an .xlsx marketplace listing template.");
-      return;
-    }
-
-    setIsReadingTemplate(true); setError("");
-    try {
-      const columns = await readGeneralProductTemplateColumns(file);
-      setTemplateFile(file); setTemplateColumns(columns);
-      setNotice(`Using ${file.name}. Batch preview matches its ${columns.length} supported listing columns.`);
-    } catch (templateError) {
-      setError(templateError instanceof Error ? templateError.message : "Unable to read this listing template.");
-    } finally { setIsReadingTemplate(false); }
   };
 
   const scanImage = async () => {
@@ -751,7 +727,7 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
   };
 
   const exportListings = async () => {
-    const invalid = generalProductBatchError(batchRows) || generalProductExportCategoryError(batchRows, !!templateFile);
+    const invalid = generalProductBatchError(batchRows) || generalProductExportCategoryError(batchRows);
     if (invalid) { setError(invalid); return; }
 
     setIsExporting(true);
@@ -761,7 +737,6 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
       await exportGeneralProductExcel(
         batchRows,
         "general-product-listings.xlsx",
-        templateFile,
       );
       setNotice(
         `${batchRows.length} listing row${batchRows.length === 1 ? "" : "s"} exported in the marketplace template format.`,
@@ -1013,15 +988,13 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
             </Section>
 
             <Section title="Pricing & stock" description="Review your selling prices, stock and tax details. Image links are in the next section.">
-              <label className="mb-5 flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm transition hover:border-violet-400 hover:bg-violet-50">
+              <div className="mb-5 flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
                 <Download className="h-4 w-4 shrink-0 text-violet-700" />
                 <span className="min-w-0 flex-1">
-                  <span className="block font-bold text-slate-800">Marketplace category template (.xlsx)</span>
-                  <span className="mt-0.5 block truncate text-xs text-slate-500">{templateFile ? templateFile.name : "Beads & Charms template included. Choose another category template if needed."}</span>
+                  <span className="block font-bold text-slate-800">Meesho export template</span>
+                  <span className="mt-0.5 block text-xs text-slate-500">meesho-template.xlsx is used automatically, just like phone listings. No upload needed.</span>
                 </span>
-                <span className="rounded-lg bg-white px-2.5 py-1.5 text-xs font-bold text-violet-700 shadow-sm">Choose</span>
-                <input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busy} onChange={(event) => void chooseTemplate(event)} className="sr-only" />
-              </label>
+              </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 <Field label="Meesho price" value={draft.price} onChange={(value) => setField("price", value)} type="number" />
                 <Field label="Wrong/defective return price" value={draft.wrongDefectiveReturnsPrice} onChange={(value) => setField("wrongDefectiveReturnsPrice", value)} type="number" />
@@ -1115,7 +1088,7 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
         </div>}
         </fieldset>
 
-        {activeStep === 4 && <GeneralProductPreviewTable products={batch} columns={templateColumns} disabled={busy} onEdit={editBatchProduct} onChange={updateBatchRow} onRemove={removeBatchProduct} onClear={() => {
+        {activeStep === 4 && <GeneralProductPreviewTable products={batch} disabled={busy} onEdit={editBatchProduct} onChange={updateBatchRow} onRemove={removeBatchProduct} onClear={() => {
           if (!window.confirm("Clear all products and variants from this local batch?")) return;
           setBatch([]); startAnotherProduct();
         }} />}
