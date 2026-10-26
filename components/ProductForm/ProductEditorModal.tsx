@@ -1,1160 +1,425 @@
 "use client";
 
-import {
-  Image as ImageIcon,
-  Loader2,
-  Plus,
-  Save,
-  X,
-} from "lucide-react";
-import {
-  useMemo,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { Check, Image as ImageIcon, Loader2, RotateCcw, Save, Search, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { PHONE_MODELS } from "@/lib/models";
-import { applyProductBrand } from "@/lib/brands";
 import {
-  DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
-  getVariantPrice,
-  getWrongDefectiveReturnDiscount,
-} from "@/lib/pricing";
-import {
-  BRANDS,
-  CATEGORIES,
-  COLORS,
-  FINISHES,
-  MATERIALS,
-  PRINT_TYPES,
-  PRODUCT_TYPES,
-  THEMES,
-} from "@/lib/options";
+  changeProductEditorField,
+  hasProductEditorChanges,
+  mergeProductEditorSave,
+  planProductEditorUpdates,
+  productEditorVersion,
+  productToEditorForm,
+  type ProductEditorField,
+  type ProductEditorForm,
+  type ProductEditorUpdate,
+} from "@/lib/product-editor";
+import { BRANDS, CATEGORIES, COLORS, FINISHES, MATERIALS, PRINT_TYPES, PRODUCT_TYPES, THEMES } from "@/lib/options";
 import type { Product } from "./ProductCard";
 
 const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_URL ??
-  "https://listing-tool-backend-b2xk.onrender.com/api"
+  process.env.NEXT_PUBLIC_API_URL ?? "https://listing-tool-backend-b2xk.onrender.com/api"
 ).replace(/\/$/, "");
-
-type EditorTab =
-  | "basic"
-  | "design"
-  | "pricing"
-  | "attributes"
-  | "supply"
-  | "images";
-
-type EditorForm = {
-  productName: string;
-  description: string;
-  brand: string;
-  category: string;
-  genericName: string;
-  material: string;
-  color: string;
-  theme: string;
-  type: string;
-  price: string;
-  wrongDefectiveReturnsPrice: string;
-  mrp: string;
-  gst: string;
-  hsn: string;
-  weight: string;
-  inventory: string;
-  country: string;
-  manufacturer: string;
-  manufacturerAddress: string;
-  manufacturerPincode: string;
-  packer: string;
-  packerAddress: string;
-  packerPincode: string;
-  importer: string;
-  importerAddress: string;
-  importerPincode: string;
-  size: string;
-  quantity: string;
-  length: string;
-  width: string;
-  designId: string;
-  designName: string;
-  designCode: string;
-  designNumber: string;
-  sku: string;
-  styleId: string;
-  printType: string;
-  finish: string;
-  version: string;
-  image1: string;
-  image2: string;
-  image3: string;
-  image4: string;
-  groupId: string;
-  models: string[];
-};
-
-type DesignOption = {
-  id: string;
-  designName: string;
-  designCode: string;
-};
-
-type UpdateResponse = {
-  success: boolean;
-  message?: string;
-  product: Product;
-};
 
 type Props = {
   product: Product;
   family: Product[];
   onClose: () => void;
-  onSaved: (product: Product) => void | Promise<void>;
+  onSaved: (product: Product, keepOpen?: boolean) => void | Promise<void>;
 };
 
-const TABS: Array<{ id: EditorTab; label: string }> = [
-  { id: "basic", label: "Basic & models" },
-  { id: "design", label: "Design & SKU" },
-  { id: "pricing", label: "Pricing & stock" },
-  { id: "attributes", label: "Attributes" },
-  { id: "supply", label: "Supply details" },
-  { id: "images", label: "Images" },
+type DesignOption = { id: string; designName: string; designCode: string };
+type TableField = {
+  key: ProductEditorField;
+  label: string;
+  multiline?: boolean;
+  number?: boolean;
+  options?: readonly string[];
+  width?: string;
+  inherited?: boolean;
+  image?: boolean;
+};
+
+const FIELDS: TableField[] = [
+  { key: "models", label: "Compatible Models", multiline: true, width: "min-w-[220px] w-[220px]" },
+  { key: "price", label: "Selling Price (₹)", number: true },
+  { key: "wrongDefectiveReturnsPrice", label: "Wrong/Defective Return Discount (₹)", number: true, width: "min-w-[180px] w-[180px]" },
+  { key: "mrp", label: "MRP (₹)", number: true },
+  { key: "inventory", label: "Inventory", number: true },
+  { key: "sku", label: "SKU", width: "min-w-[330px] w-[330px]" },
+  { key: "styleId", label: "Product ID / Style ID", width: "min-w-[330px] w-[330px]" },
+  { key: "brand", label: "Brand", options: BRANDS },
+  { key: "category", label: "Category", options: CATEGORIES, width: "min-w-[230px] w-[230px]" },
+  { key: "description", label: "Product Description", multiline: true, width: "min-w-[330px] w-[330px]" },
+  { key: "designId", label: "Saved Design", inherited: true, width: "min-w-[250px] w-[250px]" },
+  { key: "designName", label: "Design Name", inherited: true, width: "min-w-[230px] w-[230px]" },
+  { key: "designCode", label: "Design Code", inherited: true },
+  { key: "designNumber", label: "Design Number", inherited: true },
+  { key: "groupId", label: "Group ID" },
+  { key: "printType", label: "Print Type", options: PRINT_TYPES },
+  { key: "finish", label: "Finish", options: FINISHES },
+  { key: "gst", label: "GST %", number: true },
+  { key: "hsn", label: "HSN" },
+  { key: "genericName", label: "Generic Name", width: "min-w-[230px] w-[230px]" },
+  { key: "country", label: "Country of Origin" },
+  { key: "material", label: "Material", options: MATERIALS },
+  { key: "color", label: "Color", options: COLORS },
+  { key: "theme", label: "Theme", options: THEMES },
+  { key: "type", label: "Product Type", options: PRODUCT_TYPES },
+  { key: "size", label: "Size" },
+  { key: "quantity", label: "Quantity", number: true },
+  { key: "weight", label: "Weight (g)", number: true },
+  { key: "length", label: "Length (cm)", number: true },
+  { key: "width", label: "Width (cm)", number: true },
+  { key: "manufacturer", label: "Manufacturer Name" },
+  { key: "manufacturerAddress", label: "Manufacturer Address", multiline: true, width: "min-w-[260px] w-[260px]" },
+  { key: "manufacturerPincode", label: "Manufacturer Pincode" },
+  { key: "packer", label: "Packer Name" },
+  { key: "packerAddress", label: "Packer Address", multiline: true, width: "min-w-[260px] w-[260px]" },
+  { key: "packerPincode", label: "Packer Pincode" },
+  { key: "importer", label: "Importer Name" },
+  { key: "importerAddress", label: "Importer Address", multiline: true, width: "min-w-[260px] w-[260px]" },
+  { key: "importerPincode", label: "Importer Pincode" },
+  ...(["image1", "image2", "image3", "image4"] as const).map((key, index) => ({
+    key, label: `Image ${index + 1} URL`, image: true, width: "min-w-[280px] w-[280px]",
+  })),
 ];
 
-const INPUT_CLASS =
-  "h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
+const CELL_INPUT = "h-10 w-full rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
+const CELL_TEXTAREA = `${CELL_INPUT} h-auto min-h-20 resize-y py-2 leading-5`;
+const BUTTON = "inline-flex items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40";
 
-function text(value: unknown) {
-  return value === undefined || value === null
-    ? ""
-    : String(value);
-}
-
-function numberText(value: unknown) {
-  if (value === undefined || value === null || value === "") {
-    return "";
-  }
-
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? String(numeric) : "";
-}
-
-function productToForm(product: Product): EditorForm {
-  return {
-    productName: text(product.productName),
-    description: text(product.description),
-    brand: text(product.brand),
-    category: text(product.category),
-    genericName: text(product.genericName),
-    material: text(product.material),
-    color: text(product.color),
-    theme: text(product.theme),
-    type: text(product.type),
-    price: numberText(product.price),
-    wrongDefectiveReturnsPrice: numberText(
-      getWrongDefectiveReturnDiscount(
-        product.wrongDefectiveReturnsPrice,
-      ),
-    ),
-    mrp: numberText(product.mrp),
-    gst: numberText(product.gst),
-    hsn: text(product.hsn),
-    weight: numberText(product.weight),
-    inventory: numberText(product.inventory),
-    country: text(product.country),
-    manufacturer: text(product.manufacturer),
-    manufacturerAddress: text(product.manufacturerAddress),
-    manufacturerPincode: text(product.manufacturerPincode),
-    packer: text(product.packer),
-    packerAddress: text(product.packerAddress),
-    packerPincode: text(product.packerPincode),
-    importer: text(product.importer),
-    importerAddress: text(product.importerAddress),
-    importerPincode: text(product.importerPincode),
-    size: text(product.size),
-    quantity: numberText(product.quantity),
-    length: numberText(product.length),
-    width: numberText(product.width),
-    designId: text(product.designId),
-    designName: text(product.designName),
-    designCode: text(product.designCode),
-    designNumber: text(product.designNumber),
-    sku: text(product.sku),
-    styleId: text(product.styleId),
-    printType: text(product.printType),
-    finish: text(product.finish),
-    version: text(product.version),
-    image1: text(product.image1),
-    image2: text(product.image2),
-    image3: text(product.image3),
-    image4: text(product.image4),
-    groupId: text(product.groupId),
-    models: Array.from(
-      new Set(
-        (product.models ?? [])
-          .map((item) => text(item.model).trim())
-          .filter(Boolean),
-      ),
-    ),
-  };
-}
-
-function parseRequiredNumber(value: string, label: string) {
-  const numeric = Number(value);
-
-  if (!value.trim() || !Number.isFinite(numeric) || numeric < 0) {
-    throw new Error(`${label} must be a number of 0 or more.`);
-  }
-
-  return numeric;
-}
-
-async function updateProduct(id: string, body: Record<string, unknown>) {
-  const response = await fetch(`${API_BASE_URL}/products/${id}`, {
+async function updateProduct(plan: ProductEditorUpdate) {
+  const response = await fetch(`${API_BASE_URL}/products/${encodeURIComponent(plan.product.id)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    body: JSON.stringify(plan.payload),
     cache: "no-store",
   });
-
-  const result = (await response.json().catch(() => null)) as
-    | UpdateResponse
-    | { message?: string }
-    | null;
-
-  if (!response.ok) {
+  const result = await response.json().catch(() => null) as { product?: Product; message?: string } | null;
+  if (!response.ok || !result?.product) {
     throw new Error(result?.message || "Unable to update this product.");
   }
-
-  return (result as UpdateResponse).product;
+  return result.product;
 }
 
-export default function ProductEditorModal({
-  product,
-  family,
-  onClose,
-  onSaved,
-}: Props) {
-  const orderedFamily = useMemo(
-    () =>
-      [...family].sort((left, right) => {
-        const leftVersion = Number(
-          left.parentId ? left.variantNumber ?? left.version ?? 2 : 1,
-        );
-        const rightVersion = Number(
-          right.parentId ? right.variantNumber ?? right.version ?? 2 : 1,
-        );
-        return leftVersion - rightVersion;
-      }),
-    [family],
-  );
-
-  const [activeProduct, setActiveProduct] = useState(product);
-  const [form, setForm] = useState<EditorForm>(() =>
-    productToForm(product),
-  );
-  const [tab, setTab] = useState<EditorTab>("basic");
-  const [modelInput, setModelInput] = useState("");
+export default function ProductEditorModal({ product, family, onClose, onSaved }: Props) {
+  const [rows, setRows] = useState(() => [...new Map([...family, product].map((item) => [item.id, item])).values()]
+    .sort((a, b) => productEditorVersion(a) - productEditorVersion(b)));
+  const [forms, setForms] = useState<Record<string, ProductEditorForm>>(() =>
+    Object.fromEntries([...family, product].map((item) => [item.id, productToEditorForm(item)])));
+  const [query, setQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
   const [applySharedFields, setApplySharedFields] = useState(false);
   const [designs, setDesigns] = useState<DesignOption[]>([]);
   const [designsLoading, setDesignsLoading] = useState(false);
-  const [designsLoaded, setDesignsLoaded] = useState(false);
+  const designsLoaded = useRef(false);
+  const busy = useRef(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const initialRowRef = useRef<HTMLTableRowElement>(null);
+  const [hasSaved, setHasSaved] = useState(false);
 
-  const initialForm = useMemo(
-    () => productToForm(activeProduct),
-    [activeProduct],
-  );
-  const dirty = JSON.stringify(form) !== JSON.stringify(initialForm);
-  const isVariant = Boolean(activeProduct.parentId);
-  const standardVariants = orderedFamily.filter(
-    (item) => item.parentId && (item.variantType ?? "standard") === "standard",
-  );
+  const dirtyRows = useMemo(() => rows.filter((row) => hasProductEditorChanges(row, forms[row.id])), [rows, forms]);
+  const dirtyIds = new Set(dirtyRows.map((row) => row.id));
+  const standardVariants = rows.filter((row) => row.parentId && (row.variantType ?? "standard") === "standard");
+  const parent = rows.find((row) => !row.parentId);
+  const visibleRows = rows.filter((row) => {
+    const form = forms[row.id];
+    return `${productEditorVersion(row)} ${form.productName} ${form.sku} ${form.models}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
+  });
 
-  const setField = <Key extends keyof EditorForm>(
-    field: Key,
-    value: EditorForm[Key],
-  ) => {
-    setForm((current) => ({ ...current, [field]: value }));
-  };
+  const requestClose = useCallback(() => {
+    if (busy.current) return;
+    if (dirtyRows.length && !window.confirm("Close without saving your changes?")) return;
+    onClose();
+  }, [dirtyRows.length, onClose]);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
+    initialRowRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, []);
 
   const loadDesigns = async () => {
-    if (designsLoading || designsLoaded || isVariant) {
-      return;
-    }
-
+    if (designsLoading || designsLoaded.current) return;
+    setDesignsLoading(true);
     try {
-      setDesignsLoading(true);
-      const response = await fetch(`${API_BASE_URL}/designs?limit=250`, {
-        cache: "no-store",
-      });
-      const result = (await response.json().catch(() => null)) as
-        | { designs?: DesignOption[]; message?: string }
-        | null;
-
-      if (!response.ok) {
-        throw new Error(result?.message || "Unable to load saved designs.");
-      }
-
-      setDesigns(Array.isArray(result?.designs) ? result.designs : []);
-      setDesignsLoaded(true);
+      const response = await fetch(`${API_BASE_URL}/designs?limit=250`, { cache: "no-store" });
+      const result = await response.json().catch(() => null) as { designs?: DesignOption[]; message?: string } | null;
+      if (!response.ok) throw new Error(result?.message || "Unable to load saved designs.");
+      setDesigns(result?.designs ?? []);
+      designsLoaded.current = true;
     } catch (loadError) {
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "Unable to load saved designs.",
-      );
+      setError(loadError instanceof Error ? loadError.message : "Unable to load saved designs.");
     } finally {
       setDesignsLoading(false);
     }
   };
 
-  const chooseProduct = (next: Product) => {
-    if (next.id === activeProduct.id) {
-      return;
-    }
+  const changeField = (id: string, field: ProductEditorField, value: string) => {
+    setForms((current) => ({ ...current, [id]: changeProductEditorField(current[id], field, value) }));
+    setMessage("");
+    setErrors((current) => { const next = { ...current }; delete next[id]; return next; });
+  };
 
-    if (dirty && !window.confirm("Discard the unsaved changes for this record?")) {
-      return;
-    }
-
-    setActiveProduct(next);
-    setForm(productToForm(next));
-    setTab("basic");
-    setModelInput("");
+  const resetRow = (row: Product) => {
+    setForms((current) => ({ ...current, [row.id]: productToEditorForm(row) }));
+    setErrors((current) => { const next = { ...current }; delete next[row.id]; return next; });
     setError("");
-    setApplySharedFields(false);
+    setMessage("");
   };
 
-  const requestClose = () => {
-    if (dirty && !window.confirm("Close without saving your changes?")) {
-      return;
-    }
+  const saveRows = async (ids: string[]) => {
+    if (busy.current) return;
+    busy.current = true;
+    setSaving(true);
+    setError("");
+    setMessage("");
+    const rowErrors: Record<string, string> = {};
+    let nextRows = [...rows];
+    const nextForms = { ...forms };
+    let lastSaved: Product | undefined;
+    let savedCount = 0;
 
-    onClose();
-  };
-
-  const addModel = () => {
-    const model = modelInput.trim();
-
-    if (!model) {
-      return;
-    }
-
-    if (
-      form.models.some(
-        (current) => current.toLocaleLowerCase() === model.toLocaleLowerCase(),
-      )
-    ) {
-      setModelInput("");
-      return;
-    }
-
-    setField("models", [...form.models, model]);
-    setModelInput("");
-  };
-
-  const removeModel = (model: string) => {
-    setField(
-      "models",
-      form.models.filter((current) => current !== model),
-    );
-  };
-
-  const selectDesign = (designId: string) => {
-    const design = designs.find((item) => item.id === designId);
-
-    if (!design) {
-      return;
-    }
-
-    setForm((current) => ({
-      ...current,
-      designId: design.id,
-      designName: design.designName,
-      designCode: design.designCode,
-    }));
-  };
-
-  const buildPayload = () => {
-    const requiredStrings: Array<[string, string]> = [
-      [form.productName, "Product Name"],
-      [form.sku, "SKU"],
-      [form.designName, "Design Name"],
-      [form.designCode, "Design Code"],
-      [form.designNumber, "Design Number"],
-    ];
-
-    for (const [value, label] of requiredStrings) {
-      if (!value.trim()) {
-        throw new Error(`${label} is required.`);
+    const accept = (plan: ProductEditorUpdate, updated: Product) => {
+      const previous = nextRows.find((row) => row.id === updated.id) ?? plan.product;
+      nextForms[updated.id] = mergeProductEditorSave(previous, nextForms[updated.id], updated, plan.direct);
+      nextRows = nextRows.map((row) => row.id === updated.id ? updated : row);
+      if (!updated.parentId) {
+        // The API synchronizes these inherited fields when a parent is saved.
+        nextRows = nextRows.map((row) => {
+          if (row.parentId !== updated.id) return row;
+          const inherited = {
+            designId: updated.designId, designName: updated.designName,
+            designCode: updated.designCode, designNumber: updated.designNumber,
+          };
+          const inheritedForm = productToEditorForm({ ...row, ...inherited });
+          nextForms[row.id] = {
+            ...nextForms[row.id], designId: inheritedForm.designId, designName: inheritedForm.designName,
+            designCode: inheritedForm.designCode, designNumber: inheritedForm.designNumber,
+          };
+          return { ...row, ...inherited };
+        });
       }
-    }
-
-    if (!form.models.length) {
-      throw new Error("Add at least one compatible model.");
-    }
-
-    const wrongDefectiveReturnsPrice = parseRequiredNumber(
-      form.wrongDefectiveReturnsPrice.trim() ||
-        String(DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT),
-      "Wrong/Defective Return Discount",
-    );
-
-    if (wrongDefectiveReturnsPrice > 30) {
-      throw new Error("Wrong/Defective Return Discount must be ₹30 or less.");
-    }
-
-    return {
-      productName: form.productName.trim(),
-      description: form.description.trim(),
-      brand: form.brand.trim(),
-      category: form.category.trim(),
-      genericName: form.genericName.trim(),
-      material: form.material.trim(),
-      color: form.color.trim(),
-      theme: form.theme.trim(),
-      type: form.type.trim(),
-      price: parseRequiredNumber(form.price, "Selling Price"),
-      wrongDefectiveReturnsPrice,
-      mrp: parseRequiredNumber(form.mrp, "MRP"),
-      gst: parseRequiredNumber(form.gst, "GST"),
-      hsn: form.hsn.trim(),
-      weight: parseRequiredNumber(form.weight, "Weight"),
-      inventory: parseRequiredNumber(form.inventory, "Inventory"),
-      country: form.country.trim(),
-      manufacturer: form.manufacturer.trim(),
-      manufacturerAddress: form.manufacturerAddress.trim(),
-      manufacturerPincode: form.manufacturerPincode.trim(),
-      packer: form.packer.trim(),
-      packerAddress: form.packerAddress.trim(),
-      packerPincode: form.packerPincode.trim(),
-      importer: form.importer.trim(),
-      importerAddress: form.importerAddress.trim(),
-      importerPincode: form.importerPincode.trim(),
-      size: form.size.trim(),
-      quantity: parseRequiredNumber(form.quantity, "Quantity"),
-      length: parseRequiredNumber(form.length, "Length"),
-      width: parseRequiredNumber(form.width, "Width"),
-      designId:
-        isVariant || form.designId === initialForm.designId
-          ? undefined
-          : form.designId || null,
-      designName: isVariant ? undefined : form.designName.trim(),
-      designCode: isVariant ? undefined : form.designCode.trim().toUpperCase(),
-      designNumber: isVariant ? undefined : form.designNumber.trim(),
-      sku: form.sku.trim().toUpperCase(),
-      styleId: form.styleId.trim().toUpperCase(),
-      printType: form.printType.trim(),
-      finish: form.finish.trim(),
-      version: isVariant
-        ? String(activeProduct.variantNumber ?? form.version).trim()
-        : "1",
-      image1: form.image1.trim(),
-      image2: form.image2.trim(),
-      image3: form.image3.trim(),
-      image4: form.image4.trim(),
-      groupId: form.groupId.trim(),
-      models: form.models.map((model) => ({ model })),
+      lastSaved = updated;
+      savedCount += 1;
+      setHasSaved(true);
     };
-  };
-
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
 
     try {
-      setSaving(true);
-      setError("");
-
-      const payload = buildPayload();
-      const updated = await updateProduct(activeProduct.id, payload);
-
-      if (!isVariant) {
-        const sharedPayload = applySharedFields
-          ? {
-              brand: payload.brand,
-              category: payload.category,
-              genericName: payload.genericName,
-              material: payload.material,
-              color: payload.color,
-              theme: payload.theme,
-              type: payload.type,
-              gst: payload.gst,
-              hsn: payload.hsn,
-              weight: payload.weight,
-              country: payload.country,
-              manufacturer: payload.manufacturer,
-              manufacturerAddress: payload.manufacturerAddress,
-              manufacturerPincode: payload.manufacturerPincode,
-              packer: payload.packer,
-              packerAddress: payload.packerAddress,
-              packerPincode: payload.packerPincode,
-              importer: payload.importer,
-              importerAddress: payload.importerAddress,
-              importerPincode: payload.importerPincode,
-              size: payload.size,
-              quantity: payload.quantity,
-              length: payload.length,
-              width: payload.width,
-              printType: payload.printType,
-              finish: payload.finish,
-              groupId: payload.groupId,
-              models: payload.models,
-            }
-          : {};
-
-        // A variant PATCH also refreshes the design fields inherited from its
-        // parent. This keeps the V2+ records consistent after a parent edit.
-        await Promise.all(
-          standardVariants.map((variant) =>
-            updateProduct(variant.id, {
-              ...((payload.brand !== activeProduct.brand ||
-                (applySharedFields && payload.brand !== variant.brand))
-                ? applyProductBrand({
-                    brand: variant.brand,
-                    sku: variant.sku,
-                    styleId: variant.styleId,
-                  }, payload.brand)
-                : {}),
-              ...sharedPayload,
-              ...(payload.price !== activeProduct.price
-                ? {
-                    price: getVariantPrice(
-                      payload.price,
-                      variant.variantNumber ?? variant.version,
-                    ),
-                  }
-                : {}),
-            }),
-          ),
-        );
+      const plans = planProductEditorUpdates(rows, forms, ids, applySharedFields);
+      if (!plans.length) return;
+      setErrors({});
+      setSavingIds(new Set(plans.map((plan) => plan.product.id)));
+      const parentPlan = plans.find((plan) => !plan.product.parentId);
+      if (parentPlan) {
+        try { accept(parentPlan, await updateProduct(parentPlan)); }
+        catch (saveError) {
+          rowErrors[parentPlan.product.id] = saveError instanceof Error ? saveError.message : "Unable to save parent.";
+          throw new Error(`Parent V1: ${rowErrors[parentPlan.product.id]}`);
+        }
       }
-
-      await onSaved(updated);
+      const remaining = plans.filter((plan) => plan !== parentPlan);
+      for (let start = 0; start < remaining.length; start += 6) {
+        const batch = remaining.slice(start, start + 6);
+        const results = await Promise.allSettled(batch.map(updateProduct));
+        results.forEach((result, index) => {
+          const plan = batch[index];
+          if (result.status === "fulfilled") accept(plan, result.value);
+          else {
+            rowErrors[plan.product.id] = result.reason instanceof Error ? result.reason.message : "Unable to save row.";
+            if (!plan.direct) {
+              // Keep failed inherited changes visible and dirty so Save all
+              // can retry them after the parent itself has already saved.
+              const previous = nextRows.find((row) => row.id === plan.product.id) ?? plan.product;
+              nextForms[previous.id] = mergeProductEditorSave(previous, nextForms[previous.id], { ...previous, ...plan.payload } as Product, false);
+            }
+          }
+        });
+      }
+      const failedCount = Object.keys(rowErrors).length;
+      if (failedCount) setError(`${savedCount} rows saved. ${failedCount} rows could not be saved; check the row errors and try again.`);
+      else setMessage(`${savedCount} ${savedCount === 1 ? "row" : "rows"} saved successfully.`);
     } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "Unable to update this product.",
-      );
+      setError(saveError instanceof Error ? saveError.message : "Unable to save product changes.");
     } finally {
+      setRows(nextRows);
+      setForms(nextForms);
+      setErrors(rowErrors);
+      if (lastSaved) {
+        try { await onSaved(lastSaved, true); }
+        catch { setError("Your rows were saved, but the catalog could not refresh. Close the table and refresh the catalog."); }
+      }
+      setSavingIds(new Set());
       setSaving(false);
+      busy.current = false;
     }
   };
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center p-2 sm:p-5">
-      <button
-        type="button"
-        aria-label="Close product editor"
-        onClick={requestClose}
-        className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm"
-      />
-
-      <form
-        onSubmit={save}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="product-editor-title"
-        className="relative z-10 flex max-h-[96vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-[#f7f9fc] shadow-2xl"
+    <div className="fixed inset-0 z-[90] flex items-center justify-center p-2 sm:p-4">
+      <button type="button" onClick={requestClose} disabled={saving} aria-label="Close product table" className="absolute inset-0 bg-slate-950/55 backdrop-blur-sm" />
+      <div
+        ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="product-editor-title" tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") { event.stopPropagation(); requestClose(); }
+          if (event.key === "Tab") {
+            const controls = dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]');
+            if (!controls?.length) return;
+            const first = controls[0], last = controls[controls.length - 1];
+            if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus(); }
+            else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+          }
+        }}
+        className="relative flex h-[94vh] min-h-0 w-full max-w-[1800px] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl outline-none"
       >
-        <header className="border-b border-slate-200 bg-white px-4 py-4 sm:px-6">
-          <div className="flex items-start justify-between gap-4">
+        <header className="shrink-0 border-b border-slate-200 px-4 py-4 sm:px-6">
+          <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 id="product-editor-title" className="truncate text-xl font-bold text-slate-950">
-                  Edit product
-                </h2>
-                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700">
-                  {isVariant
-                    ? `Variant V${activeProduct.variantNumber ?? activeProduct.version}`
-                    : "Parent V1"}
-                </span>
+                <h2 id="product-editor-title" className="text-xl font-bold text-slate-950">Edit products</h2>
+                <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">{rows.length} {rows.length === 1 ? "record" : "records"}</span>
               </div>
-              <p className="mt-1 truncate text-sm text-slate-500">
-                {activeProduct.productName}
-              </p>
+              <p className="mt-1 truncate text-sm text-slate-500">Design {forms[parent?.id ?? product.id]?.designNumber} · {parent?.productName ?? product.productName}</p>
             </div>
-
-            <button
-              type="button"
-              onClick={requestClose}
-              aria-label="Close product editor"
-              className="rounded-xl border border-slate-200 p-2.5 text-slate-500 transition hover:bg-slate-50"
-            >
-              <X size={18} />
-            </button>
+            <button type="button" onClick={requestClose} disabled={saving} aria-label="Close product editor" className={`${BUTTON} p-2.5`}><X size={18} /></button>
           </div>
-
-          {orderedFamily.length > 1 ? (
-            <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-              {orderedFamily.map((item) => {
-                const label = item.parentId
-                  ? `V${item.variantNumber ?? item.version ?? "?"}`
-                  : "V1 Parent";
-                const selected = item.id === activeProduct.id;
-
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => chooseProduct(item)}
-                    title={item.productName}
-                    className={`shrink-0 rounded-xl border px-3 py-2 text-xs font-bold transition ${
-                      selected
-                        ? "border-blue-600 bg-blue-600 text-white"
-                        : "border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-slate-500">Edit cells directly. Scroll horizontally for all fields, then save a row or all changes.</p>
+            <label className="relative w-full sm:w-72">
+              <Search size={15} className="absolute left-3 top-3 text-slate-400" />
+              <input type="search" aria-label="Search product rows" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search title, SKU, model or version" className={`${CELL_INPUT} pl-9`} />
+            </label>
+          </div>
         </header>
 
-        <nav className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-white px-3 sm:px-5">
-          {TABS.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => {
-                setTab(item.id);
-                if (item.id === "design") {
-                  void loadDesigns();
-                }
-              }}
-              className={`shrink-0 border-b-2 px-3 py-3 text-xs font-bold transition ${
-                tab === item.id
-                  ? "border-blue-600 text-blue-700"
-                  : "border-transparent text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              {item.label}
-            </button>
-          ))}
-        </nav>
+        {(error || message) && <div aria-live="polite" role={error ? "alert" : "status"} className={`shrink-0 border-b px-4 py-3 text-sm sm:px-6 ${error ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>{error || message}</div>}
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
-          {error ? (
-            <div className="mb-5 flex items-start justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-              <p>{error}</p>
-              <button type="button" onClick={() => setError("")}>
-                <X size={16} />
-              </button>
-            </div>
-          ) : null}
-
-          {tab === "basic" ? (
-            <EditorSection
-              title="Basic information"
-              description="Edit the listing title, description, brand, category and compatible models."
-            >
-              <div className="grid gap-4 lg:grid-cols-2">
-                <TextField
-                  label="Product Name"
-                  required
-                  value={form.productName}
-                  onChange={(value) => setField("productName", value)}
-                  className="lg:col-span-2"
-                />
-                <TextAreaField
-                  label="Product Description"
-                  value={form.description}
-                  onChange={(value) => setField("description", value)}
-                  className="lg:col-span-2"
-                />
-                <SelectField
-                  label="Brand"
-                  value={form.brand}
-                  options={BRANDS}
-                  onChange={(value) => {
-                    setForm((current) => applyProductBrand(current, value));
-                  }}
-                />
-                <SelectField
-                  label="Category"
-                  value={form.category}
-                  options={CATEGORIES}
-                  onChange={(value) => {
-                    const previousCategory = form.category;
-                    setForm((current) => ({
-                      ...current,
-                      category: value,
-                      genericName:
-                        !current.genericName ||
-                        current.genericName === previousCategory
-                          ? value
-                          : current.genericName,
-                    }));
-                  }}
-                />
-                <TextField
-                  label="Generic Name"
-                  value={form.genericName}
-                  onChange={(value) => setField("genericName", value)}
-                />
-                <TextField
-                  label="Country of Origin"
-                  value={form.country}
-                  onChange={(value) => setField("country", value)}
-                />
-              </div>
-
-              <div className="mt-5 border-t border-slate-100 pt-5">
-                <FieldLabel label="Compatible Models" required />
-                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                  <input
-                    aria-label="Add compatible model"
-                    list="product-editor-models"
-                    value={modelInput}
-                    onChange={(event) => setModelInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") {
-                        event.preventDefault();
-                        addModel();
-                      }
-                    }}
-                    placeholder="Search or type a model, then press Enter"
-                    className={INPUT_CLASS}
-                  />
-                  <button
-                    type="button"
-                    onClick={addModel}
-                    className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-bold text-white hover:bg-slate-800"
-                  >
-                    <Plus size={16} />
-                    Add model
-                  </button>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {form.models.map((model) => (
-                    <span
-                      key={model}
-                      className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700"
-                    >
-                      {model}
-                      <button
-                        type="button"
-                        onClick={() => removeModel(model)}
-                        aria-label={`Remove ${model}`}
-                        className="rounded-full p-0.5 hover:bg-blue-100"
-                      >
-                        <X size={12} />
-                      </button>
-                    </span>
-                  ))}
-                  {!form.models.length ? (
-                    <p className="text-xs font-semibold text-red-600">
-                      Add at least one compatible model.
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </EditorSection>
-          ) : null}
-
-          {tab === "design" ? (
-            <EditorSection
-              title="Design, SKU and family identity"
-              description={
-                isVariant
-                  ? "Design fields are inherited from the V1 parent. The variant title, SKU, Style ID and version remain individually editable."
-                  : "Choose a saved design or keep the current design, then edit the parent identity fields."
-              }
-            >
-              {!isVariant ? (
-                <div className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
-                  <FieldLabel label="Saved Design" />
-                  <select
-                    aria-label="Saved Design"
-                    value={form.designId}
-                    onFocus={() => void loadDesigns()}
-                    onChange={(event) => selectDesign(event.target.value)}
-                    disabled={designsLoading}
-                    className={`${INPUT_CLASS} mt-2`}
-                  >
-                    <option value={form.designId}>
-                      {form.designName && form.designCode
-                        ? `${form.designName} — ${form.designCode}`
-                        : "Current manual design"}
-                    </option>
-                    {designs
-                      .filter((design) => design.id !== form.designId)
-                      .map((design) => (
-                        <option key={design.id} value={design.id}>
-                          {design.designName} — {design.designCode}
-                        </option>
-                      ))}
-                  </select>
-                  <p className="mt-2 text-xs text-blue-700">
-                    {designsLoading
-                      ? "Loading saved designs…"
-                      : "Selecting a design updates Design Name and Design Code together."}
-                  </p>
-                </div>
-              ) : (
-                <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-semibold leading-5 text-amber-800">
-                  To change Design Name, Design Code or Design Number for this
-                  variant, edit its V1 parent. All standard V2+ variants are
-                  synchronized when the parent is saved.
-                </div>
-              )}
-
-              <div className="grid gap-4 lg:grid-cols-2">
-                <TextField
-                  label="Design Name"
-                  required
-                  value={form.designName}
-                  disabled={isVariant || Boolean(form.designId)}
-                  onChange={(value) => setField("designName", value)}
-                />
-                <TextField
-                  label="Design Code"
-                  required
-                  value={form.designCode}
-                  disabled={isVariant || Boolean(form.designId)}
-                  onChange={(value) => setField("designCode", value.toUpperCase())}
-                />
-                <TextField
-                  label="Design Number"
-                  required
-                  value={form.designNumber}
-                  disabled={isVariant}
-                  onChange={(value) => setField("designNumber", value)}
-                />
-                <TextField
-                  label="Group ID"
-                  value={form.groupId}
-                  onChange={(value) => setField("groupId", value)}
-                />
-                <TextField
-                  label="SKU"
-                  required
-                  value={form.sku}
-                  onChange={(value) => setField("sku", value.toUpperCase())}
-                  className="lg:col-span-2"
-                />
-                <TextField
-                  label="Product ID / Style ID"
-                  value={form.styleId}
-                  onChange={(value) => setField("styleId", value.toUpperCase())}
-                />
-                <TextField
-                  label="Version"
-                  value={form.version}
-                  disabled
-                  onChange={(value) => setField("version", value)}
-                  help={
-                    isVariant
-                      ? `Relationship remains locked to V${activeProduct.variantNumber ?? "?"}.`
-                      : "Parent relationship remains locked to V1."
-                  }
-                />
-                <TextField
-                  label="Print Type"
-                  value={form.printType}
-                  list="product-editor-print-types"
-                  onChange={(value) => setField("printType", value)}
-                />
-                <TextField
-                  label="Finish"
-                  value={form.finish}
-                  list="product-editor-finishes"
-                  onChange={(value) => setField("finish", value)}
-                />
-              </div>
-            </EditorSection>
-          ) : null}
-
-          {tab === "pricing" ? (
-            <EditorSection
-              title="Pricing and inventory"
-              description="Update prices, tax, HSN and available stock for this exact record."
-            >
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <TextField label="Selling Price" type="number" min="0" step="any" required value={form.price} onChange={(value) => setField("price", value)} help={isVariant ? "Enter any price for this variant." : "Changing this price updates standard variants in a repeating five-price sequence starting here."} />
-                <TextField label="Wrong/Defective Return Discount (₹)" type="number" min="0" max="30" step="1" value={form.wrongDefectiveReturnsPrice} onChange={(value) => setField("wrongDefectiveReturnsPrice", value)} help="Editable discount from ₹0 to ₹30; defaults to ₹2 when blank." />
-                <TextField label="MRP" type="number" min="0" step="0.01" required value={form.mrp} onChange={(value) => setField("mrp", value)} />
-                <TextField label="GST %" type="number" min="0" step="0.01" required value={form.gst} onChange={(value) => setField("gst", value)} />
-                <TextField label="HSN" value={form.hsn} onChange={(value) => setField("hsn", value)} />
-                <TextField label="Inventory" type="number" min="0" step="1" required value={form.inventory} onChange={(value) => setField("inventory", value)} />
-              </div>
-            </EditorSection>
-          ) : null}
-
-          {tab === "attributes" ? (
-            <EditorSection
-              title="Product attributes and dimensions"
-              description="Edit physical and merchandising attributes stored with this record."
-            >
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <TextField label="Material" value={form.material} list="product-editor-materials" onChange={(value) => setField("material", value)} />
-                <TextField label="Color" value={form.color} list="product-editor-colors" onChange={(value) => setField("color", value)} />
-                <TextField label="Theme" value={form.theme} list="product-editor-themes" onChange={(value) => setField("theme", value)} />
-                <TextField label="Product Type" value={form.type} list="product-editor-types" onChange={(value) => setField("type", value)} />
-                <TextField label="Size" value={form.size} onChange={(value) => setField("size", value)} />
-                <TextField label="Quantity" type="number" min="0" step="1" required value={form.quantity} onChange={(value) => setField("quantity", value)} />
-                <TextField label="Weight" type="number" min="0" step="0.01" required value={form.weight} onChange={(value) => setField("weight", value)} />
-                <TextField label="Length" type="number" min="0" step="0.01" required value={form.length} onChange={(value) => setField("length", value)} />
-                <TextField label="Width" type="number" min="0" step="0.01" required value={form.width} onChange={(value) => setField("width", value)} />
-              </div>
-            </EditorSection>
-          ) : null}
-
-          {tab === "supply" ? (
-            <div className="space-y-5">
-              <EditorSection title="Manufacturer" description="Manufacturer name and address details.">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <TextField label="Manufacturer Name" value={form.manufacturer} onChange={(value) => setField("manufacturer", value)} />
-                  <TextField label="Manufacturer Pincode" value={form.manufacturerPincode} onChange={(value) => setField("manufacturerPincode", value)} />
-                  <TextAreaField label="Manufacturer Address" value={form.manufacturerAddress} onChange={(value) => setField("manufacturerAddress", value)} className="lg:col-span-2" />
-                </div>
-              </EditorSection>
-              <EditorSection title="Packer" description="Packer name and address details.">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <TextField label="Packer Name" value={form.packer} onChange={(value) => setField("packer", value)} />
-                  <TextField label="Packer Pincode" value={form.packerPincode} onChange={(value) => setField("packerPincode", value)} />
-                  <TextAreaField label="Packer Address" value={form.packerAddress} onChange={(value) => setField("packerAddress", value)} className="lg:col-span-2" />
-                </div>
-              </EditorSection>
-              <EditorSection title="Importer" description="Importer name and address details.">
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <TextField label="Importer Name" value={form.importer} onChange={(value) => setField("importer", value)} />
-                  <TextField label="Importer Pincode" value={form.importerPincode} onChange={(value) => setField("importerPincode", value)} />
-                  <TextAreaField label="Importer Address" value={form.importerAddress} onChange={(value) => setField("importerAddress", value)} className="lg:col-span-2" />
-                </div>
-              </EditorSection>
-            </div>
-          ) : null}
-
-          {tab === "images" ? (
-            <EditorSection
-              title="Product images"
-              description="Paste up to four image URLs. Empty fields remove the URL from this record."
-            >
-              <div className="grid gap-5 md:grid-cols-2">
-                {(["image1", "image2", "image3", "image4"] as const).map(
-                  (field, index) => (
-                    <div key={field} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                      <div className="mb-3 aspect-[4/3] overflow-hidden rounded-lg border border-slate-200 bg-white">
-                        {form[field] ? (
-                          <img src={form[field]} alt={`Product image ${index + 1}`} className="h-full w-full object-contain" />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-slate-300">
-                            <ImageIcon size={28} />
-                          </div>
-                        )}
+        <div className="relative min-h-0 flex-1 overflow-auto overscroll-contain" aria-label="Editable product table">
+          <table className="w-max min-w-full border-separate border-spacing-0 text-left text-xs">
+            <caption className="sr-only">Editable parent and variant records. One product per row.</caption>
+            <thead className="sticky top-0 z-40 bg-slate-100 text-[10px] font-bold uppercase tracking-wider text-slate-600">
+              <tr>
+                <th scope="col" className="sticky left-0 z-50 w-20 min-w-20 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 sm:w-24 sm:min-w-24">Version</th>
+                <th scope="col" className="z-50 w-[220px] min-w-[220px] border-b border-r border-slate-200 bg-slate-100 px-3 py-3 shadow-[4px_0_8px_-6px_#64748b] sm:sticky sm:left-24 sm:w-[300px] sm:min-w-[300px]">Product Name</th>
+                {FIELDS.map((field) => <th key={field.key} scope="col" className={`border-b border-r border-slate-200 px-3 py-3 ${field.width ?? (field.number ? "w-[130px] min-w-[130px]" : "w-[180px] min-w-[180px]")}`}>{field.label}</th>)}
+                <th scope="col" className="z-50 w-[150px] min-w-[150px] border-b border-l border-slate-200 bg-slate-100 px-3 py-3 text-right sm:sticky sm:right-0">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.map((row) => {
+                const form = forms[row.id];
+                const dirty = dirtyIds.has(row.id);
+                const rowError = errors[row.id];
+                const highlighted = row.id === product.id;
+                const background = highlighted ? "bg-blue-50" : "bg-white";
+                return (
+                  <tr key={row.id} ref={highlighted ? initialRowRef : undefined} className={`align-top ${background}`}>
+                    <th scope="row" className={`sticky left-0 z-20 border-b border-r border-slate-200 px-3 py-3 ${background}`}>
+                      <span className={`inline-flex rounded-full px-2 py-1 font-bold ${row.parentId ? "bg-slate-100 text-slate-600" : "bg-blue-100 text-blue-700"}`}>V{productEditorVersion(row)}</span>
+                      <span className="mt-2 block text-[10px] font-medium text-slate-500">{row.parentId ? "Variant" : "Parent"}</span>
+                    </th>
+                    <td className={`z-20 border-b border-r border-slate-200 p-2 shadow-[4px_0_8px_-6px_#64748b] sm:sticky sm:left-24 ${background}`}>
+                      <textarea rows={3} aria-label={`Product Name for V${productEditorVersion(row)}`} value={form.productName} onChange={(event) => changeField(row.id, "productName", event.target.value)} disabled={saving} className={CELL_TEXTAREA} />
+                    </td>
+                    {FIELDS.map((field) => (
+                      <td key={field.key} className="border-b border-r border-slate-200 p-2">
+                        <ProductTableInput field={field} row={row} form={form} saving={saving} designs={designs} designsLoading={designsLoading}
+                          onLoadDesigns={loadDesigns} onChange={(value) => changeField(row.id, field.key, value)}
+                          onSelectDesign={(id) => {
+                            const design = designs.find((option) => option.id === id);
+                            if (design) setForms((current) => ({ ...current, [row.id]: { ...current[row.id], designId: design.id, designName: design.designName, designCode: design.designCode } }));
+                          }} />
+                      </td>
+                    ))}
+                    <td className={`z-20 border-b border-l border-slate-200 px-3 py-3 sm:sticky sm:right-0 ${background}`}>
+                      <span className={`mb-3 inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold ${rowError ? "bg-red-100 text-red-700" : dirty ? "bg-amber-100 text-amber-700" : "bg-emerald-50 text-emerald-700"}`}>
+                        {!dirty && !rowError && <Check size={10} />}{rowError ? "Save failed" : dirty ? "Unsaved" : "Up to date"}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button type="button" onClick={() => void saveRows([row.id])} disabled={saving || !dirty} aria-label={`Save V${productEditorVersion(row)} changes`} className={`${BUTTON} border-blue-200 text-blue-700`}>
+                          {savingIds.has(row.id) ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />}Save
+                        </button>
+                        <button type="button" onClick={() => resetRow(row)} disabled={saving || !dirty} title="Reset unsaved row changes" aria-label={`Reset V${productEditorVersion(row)} changes`} className={`${BUTTON} px-2`}><RotateCcw size={13} /></button>
                       </div>
-                      <TextField label={`Image ${index + 1} URL`} type="url" value={form[field]} placeholder="https://..." onChange={(value) => setField(field, value)} />
-                    </div>
-                  ),
-                )}
-              </div>
-            </EditorSection>
-          ) : null}
+                      {rowError && <p role="alert" className="mt-3 max-w-32 break-words text-[11px] text-red-600">{rowError}</p>}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!visibleRows.length && <tr><td colSpan={FIELDS.length + 3} className="p-8 text-slate-500">No matching product rows.</td></tr>}
+            </tbody>
+          </table>
         </div>
 
-        <footer className="border-t border-slate-200 bg-white px-4 py-4 sm:px-6">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              {!isVariant && standardVariants.length ? (
-                <label className="flex cursor-pointer items-start gap-2.5 text-xs text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={applySharedFields}
-                    onChange={(event) => setApplySharedFields(event.target.checked)}
-                    className="mt-0.5 h-4 w-4 accent-blue-600"
-                  />
-                  <span>
-                    <strong className="text-slate-800">Apply shared catalog fields to all {standardVariants.length} standard variants</strong>
-                    <span className="mt-0.5 block text-slate-400">
-                      Copies brand, category, attributes, tax, models and supply details. Brand changes also update variant SKU prefixes; titles, prices, stock and images stay unchanged.
-                    </span>
+        <footer className="shrink-0 border-t border-slate-200 bg-white px-4 py-4 sm:px-6">
+          <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-center">
+            <div className="text-xs text-slate-500">
+              <p>{dirtyRows.length ? `${dirtyRows.length} ${dirtyRows.length === 1 ? "row has" : "rows have"} unsaved changes` : "All rows are up to date"}</p>
+              {parent && standardVariants.length > 0 && (
+                <label className="mt-2 flex items-start gap-2">
+                  <input type="checkbox" checked={applySharedFields} disabled={saving} onChange={(event) => setApplySharedFields(event.target.checked)} className="mt-0.5 accent-blue-600" />
+                  <span>Apply parent catalog fields to all {standardVariants.length} standard variants when saving the parent.
+                    <span className="mt-0.5 block text-[11px] text-slate-400">Parent price and brand changes keep the existing variant update behavior. Individual table edits take priority when saving all.</span>
                   </span>
                 </label>
-              ) : (
-                <p className="text-xs text-slate-400">
-                  Parent and relationship IDs stay protected while editing.
-                </p>
               )}
             </div>
-
-            <div className="flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={requestClose}
-                disabled={saving}
-                className="inline-flex h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={saving || !dirty}
-                className="inline-flex h-11 min-w-36 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saving ? <Loader2 size={17} className="animate-spin" /> : <Save size={17} />}
-                {saving ? "Saving…" : "Save changes"}
+            <div className="flex shrink-0 justify-end gap-2">
+              <button type="button" onClick={requestClose} disabled={saving} className={`${BUTTON} h-11 px-5 text-sm`}>{hasSaved ? "Close" : "Cancel"}</button>
+              <button type="button" onClick={() => void saveRows(dirtyRows.map((row) => row.id))} disabled={saving || !dirtyRows.length} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40">
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}{saving ? "Saving…" : "Save all changes"}
               </button>
             </div>
           </div>
         </footer>
-      </form>
-
-      <datalist id="product-editor-models">
-        {PHONE_MODELS.map((model) => <option key={model} value={model} />)}
-      </datalist>
-      <Datalist id="product-editor-materials" values={MATERIALS} />
-      <Datalist id="product-editor-colors" values={COLORS} />
-      <Datalist id="product-editor-themes" values={THEMES} />
-      <Datalist id="product-editor-types" values={PRODUCT_TYPES} />
-      <Datalist id="product-editor-print-types" values={PRINT_TYPES} />
-      <Datalist id="product-editor-finishes" values={FINISHES} />
-    </div>
-  );
-}
-
-function EditorSection({
-  title,
-  description,
-  children,
-}: {
-  title: string;
-  description: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="mb-5">
-        <h3 className="text-base font-bold text-slate-950">{title}</h3>
-        <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
       </div>
-      {children}
-    </section>
-  );
-}
-
-function FieldLabel({ label, required = false }: { label: string; required?: boolean }) {
-  return (
-    <label className="block text-xs font-bold text-slate-700">
-      {label}
-      {required ? <span className="ml-1 text-red-500">*</span> : null}
-    </label>
-  );
-}
-
-function TextField({
-  label,
-  value,
-  onChange,
-  type = "text",
-  required = false,
-  disabled = false,
-  list,
-  min,
-  max,
-  step,
-  placeholder,
-  help,
-  className = "",
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  type?: "text" | "number" | "url";
-  required?: boolean;
-  disabled?: boolean;
-  list?: string;
-  min?: string;
-  max?: string;
-  step?: string;
-  placeholder?: string;
-  help?: string;
-  className?: string;
-}) {
-  return (
-    <div className={className}>
-      <FieldLabel label={label} required={required} />
-      <input
-        aria-label={label}
-        type={type}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        required={required}
-        disabled={disabled}
-        list={list}
-        min={min}
-        max={max}
-        step={step}
-        placeholder={placeholder}
-        className={`${INPUT_CLASS} mt-2`}
-      />
-      {help ? <p className="mt-1.5 text-[11px] text-slate-400">{help}</p> : null}
     </div>
   );
 }
 
-function TextAreaField({
-  label,
-  value,
-  onChange,
-  className = "",
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  className?: string;
+function ProductTableInput({ field, row, form, saving, designs, designsLoading, onLoadDesigns, onChange, onSelectDesign }: {
+  field: TableField; row: Product; form: ProductEditorForm; saving: boolean;
+  designs: DesignOption[]; designsLoading: boolean; onLoadDesigns: () => Promise<void>;
+  onChange: (value: string) => void; onSelectDesign: (id: string) => void;
 }) {
-  return (
-    <div className={className}>
-      <FieldLabel label={label} />
-      <textarea
-        aria-label={label}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        rows={4}
-        className="mt-2 w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-300 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-      />
-    </div>
-  );
-}
-
-function SelectField({
-  label,
-  value,
-  options,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  options: readonly string[];
-  onChange: (value: string) => void;
-}) {
-  const normalizedOptions = options.includes(value)
-    ? options
-    : value
-      ? [value, ...options]
-      : options;
-
-  return (
-    <div>
-      <FieldLabel label={label} />
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className={`${INPUT_CLASS} mt-2`}>
-        {!value ? <option value="">Select {label}</option> : null}
-        {normalizedOptions.map((option) => <option key={option} value={option}>{option}</option>)}
+  const value = form[field.key];
+  const inherited = Boolean(field.inherited && row.parentId);
+  const linkedDesign = (field.key === "designName" || field.key === "designCode") && Boolean(form.designId);
+  const disabled = saving || inherited || linkedDesign;
+  const label = `${field.label} for V${productEditorVersion(row)}`;
+  if (field.key === "designId") {
+    return <div>
+      <select aria-label={label} value={value} disabled={saving || inherited} onFocus={() => void onLoadDesigns()} onChange={(event) => onSelectDesign(event.target.value)} className={CELL_INPUT}>
+        <option value={value}>{form.designName || "Current manual design"}{form.designCode ? ` — ${form.designCode}` : ""}</option>
+        {designs.filter((design) => design.id !== value).map((design) => <option key={design.id} value={design.id}>{design.designName} — {design.designCode}</option>)}
       </select>
-    </div>
-  );
-}
-
-function Datalist({ id, values }: { id: string; values: readonly string[] }) {
-  return (
-    <datalist id={id}>
-      {values.map((value) => <option key={value} value={value} />)}
-    </datalist>
-  );
+      <p className="mt-1 text-[10px] text-slate-400">{inherited ? "Inherited from V1 parent" : designsLoading ? "Loading saved designs…" : "Selecting a design updates its name and code."}</p>
+    </div>;
+  }
+  if (field.options) {
+    const options = value && !field.options.includes(value) ? [value, ...field.options] : field.options;
+    return <select aria-label={label} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} className={CELL_INPUT}>
+      {!value && <option value="">Select {field.label}</option>}
+      {options.map((option) => <option key={option} value={option}>{option}</option>)}
+    </select>;
+  }
+  return <div>
+    {field.image && <div className="mb-2 flex h-12 items-center gap-2 text-slate-400">
+      {value ? <img src={value} alt={`${field.label} for V${productEditorVersion(row)}`} loading="lazy" className="h-12 w-12 rounded-lg border border-slate-200 bg-white object-contain" /> : <ImageIcon size={20} />}
+    </div>}
+    {field.multiline ? <textarea rows={3} value={value} disabled={disabled} aria-label={label} placeholder={field.key === "models" ? "One phone model per line" : undefined} onChange={(event) => onChange(event.target.value)} className={CELL_TEXTAREA} />
+      : <input type={field.number ? "number" : "text"} value={value} disabled={disabled} aria-label={label} min={field.number ? 0 : undefined} max={field.key === "wrongDefectiveReturnsPrice" ? 30 : undefined} step={field.number ? "any" : undefined} onChange={(event) => onChange(event.target.value)} className={CELL_INPUT} />}
+    {(inherited || linkedDesign) && <p className="mt-1 text-[10px] text-slate-400">{inherited ? "Inherited from V1 parent" : "Set by the saved design"}</p>}
+  </div>;
 }

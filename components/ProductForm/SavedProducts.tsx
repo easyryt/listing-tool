@@ -984,8 +984,9 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
 
   const productSaved = async (
     product: Product,
+    keepOpen = false,
   ) => {
-    setEditor(null);
+    if (!keepOpen) setEditor(null);
     setSelectedProduct(null);
     setDetail(null);
     await loadProducts(true);
