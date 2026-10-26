@@ -3,7 +3,7 @@ export const BRANDS = ["Mobiro", "Sadarbazar", "Fibio"] as const;
 const BRAND_CODES: Record<string, string> = {
   mobiro: "MBRO",
   sadarbazar: "SDBR",
-  fibio: "FIBIO",
+  fibio: "FBO",
 };
 
 export function getBrandCode(brand: string) {
