@@ -30,6 +30,7 @@ import { useRouter } from "next/navigation";
 
 import type { Product as ProductFormProduct } from "@/components/ProductForm/ProductCard";
 import { exportExcel } from "@/lib/excel";
+import ProductTitleNotice from "@/components/ProductTitleNotice";
 import { generateSKU } from "@/lib/sku";
 import { charmVariantNumber, sortCharmsByVersion } from "@/lib/charm-order";
 import {
@@ -1166,6 +1167,7 @@ export default function CharmManager({
 
         {error && <Notice tone="error" message={error} onClose={() => setError(null)} />}
         {message && <Notice tone="success" message={message} onClose={() => setMessage(null)} />}
+        <ProductTitleNotice titles={[...drafts, ...charms].map((charm) => charm.productName)} />
 
         <section className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Stat label="Parent product" value={rootProduct ? "1" : "0"} helper="Original listing" icon={<Package size={20} />} />

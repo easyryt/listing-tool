@@ -8,6 +8,7 @@ import { saveAs } from "file-saver";
 import { COLUMN } from "./columnMap";
 import { getWrongDefectiveReturnDiscount } from "./pricing";
 import { generateSKU } from "./sku";
+import { assertProductTitlesForExport } from "./product-title-validation";
 
 import type { Product } from "../components/ProductForm/ProductCard";
 
@@ -60,6 +61,8 @@ export async function exportExcel(
   if (!Array.isArray(products) || products.length === 0) {
     throw new Error("Please add at least one product to the batch.");
   }
+
+  assertProductTitlesForExport(products);
 
   const ExcelJS = (await import("exceljs")).default;
 

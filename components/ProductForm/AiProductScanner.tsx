@@ -3,6 +3,7 @@
 import { ImageUp, Loader2, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PHONE_MODELS } from "@/lib/models";
+import ProductTitleNotice from "@/components/ProductTitleNotice";
 import {
   CATEGORIES,
   PRODUCT_TYPES,
@@ -56,6 +57,7 @@ export default function AiProductScanner({
   const [image, setImage] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [generatedTitle, setGeneratedTitle] = useState("");
 
   useEffect(() => {
     return () => {
@@ -83,6 +85,7 @@ export default function AiProductScanner({
     }
 
     setImage(file);
+    setGeneratedTitle("");
     setPreviewUrl(URL.createObjectURL(file));
   };
 
@@ -114,6 +117,7 @@ export default function AiProductScanner({
 
     try {
       setLoading(true);
+      setGeneratedTitle("");
 
       const body = new FormData();
 
@@ -171,6 +175,7 @@ export default function AiProductScanner({
       }
 
       onGenerated(productDetails);
+      setGeneratedTitle(generatedTitle);
 
       alert(
         "Design generated, uploaded to ImageKit, and saved in the design library.",
@@ -275,6 +280,8 @@ export default function AiProductScanner({
         </div>
       </div>
 
+      <p className="mt-4 text-xs text-slate-600">Generated titles are checked for known Meesho error keywords, length and product details. Brand/model warnings still need review.</p>
+      <ProductTitleNotice titles={generatedTitle ? [generatedTitle] : []} />
       {previewUrl && (
         <div className="mt-5 flex flex-col gap-4 sm:flex-row sm:items-center">
           <div

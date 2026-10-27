@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { meeshoProductTitlePromptRules, normalizeProductTitle, productTitleKeywordIssues, productTitleWarnings, validGeneratedProductTitles } from "@/lib/product-title-validation";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -39,11 +40,13 @@ type OpenAiResponse = {
 };
 
 function cleanTitle(value: unknown) {
-  return String(value || "")
-    .replace(/[â€œâ€"']/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
+  return normalizeProductTitle(value);
+}
+
+function parseTitles(text: string): { titles?: unknown } {
+  const result: unknown = JSON.parse(text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+  if (!result || typeof result !== "object" || Array.isArray(result)) throw new SyntaxError("AI must return a titles JSON object.");
+  return result as { titles?: unknown };
 }
 
 function getAiProvider(value: unknown): AiProvider {
@@ -126,26 +129,26 @@ async function generateWithOpenAi({
   }
 
   try {
-    return JSON.parse(text) as { titles?: unknown };
+    return parseTitles(text);
   } catch {
-    throw new Error("OpenAI returned invalid variant titles. Please try again.");
+    throw new SyntaxError("OpenAI returned invalid variant titles. Please try again.");
   }
 }
 
-function validTitles(value: unknown, count: number) {
-  if (!Array.isArray(value)) return [];
-
-  const uniqueTitles = new Map<string, string>();
-
-  value.forEach((value) => {
-    const title = cleanTitle(value);
-
-    if (title.length >= 55 && !uniqueTitles.has(title.toLowerCase())) {
-      uniqueTitles.set(title.toLowerCase(), title);
-    }
+async function generateWithGemini({ apiKey, model, prompt }: { apiKey: string; model: string; prompt: string }) {
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.7, responseMimeType: "application/json" },
+    }),
   });
-
-  return Array.from(uniqueTitles.values()).slice(0, count);
+  const data = (await response.json()) as GeminiResponse;
+  if (!response.ok) throw new Error(data.error?.message || "Gemini could not generate titles.");
+  const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text || "").join("").trim();
+  if (!text) return {};
+  return parseTitles(text);
 }
 
 function promptFor({
@@ -157,6 +160,7 @@ function promptFor({
   count,
   usedTitles,
   forCharm,
+  attempt,
 }: {
   parentTitle: string;
   category: string;
@@ -166,12 +170,13 @@ function promptFor({
   count: number;
   usedTitles: string[];
   forCharm: boolean;
+  attempt: number;
 }) {
   const usedTitlesText = usedTitles.length
     ? `\nDo not reuse or closely copy any existing title:\n${usedTitles.map((title) => `- ${title}`).join("\n")}\n`
     : "";
   const charmTitleText = forCharm
-    ? "\nDo not include \"With Charms\" in the title. The charm workflow adds that phrase automatically.\n"
+    ? "\nDo not include \"With Charms\" in the title. The charm workflow adds that phrase automatically. The generated base title must be 55–88 characters so the final title stays within 100 characters.\n"
     : "";
 
   return `
@@ -193,6 +198,8 @@ Rules:
 - Use the selected theme naturally.
 - Each title must be 55 to 100 characters.
 - Do not use quotes, emojis, prices, SKU, version numbers, marketplace names, or unsupported product claims.
+${meeshoProductTitlePromptRules()}
+${attempt > 1 ? "- Correction attempt: earlier output had duplicates, invalid JSON, or titles failing keyword/length/model/type checks. Return only the still-missing valid titles. Do not repeat accepted titles and do not cut off long titles." : ""}
 ${usedTitlesText}${charmTitleText}
 `;
 }
@@ -206,15 +213,15 @@ export async function POST(request: Request) {
     const theme = String(body.theme || "").trim();
     const productType = String(body.productType || "").trim();
     const count = Number(body.count);
-    const usedTitles = Array.isArray(body.usedTitles)
+    const usedTitles = [parentTitle, ...(Array.isArray(body.usedTitles)
       ? Array.from(
           new Set(
             body.usedTitles
               .map((title) => cleanTitle(title))
               .filter(Boolean),
           ),
-        ).slice(0, 200)
-      : [];
+        ).slice(0, 500)
+      : [])];
     const forCharm = body.forCharm === true;
 
     if (!parentTitle || !category || !model || !theme || !productType) {
@@ -230,6 +237,9 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
+
+    const blockedSelection = productTitleKeywordIssues(`${model} ${productType}`).errors;
+    if (blockedSelection.length) return NextResponse.json({ error: `The selected model/product type contains a known Meesho title error keyword: ${blockedSelection.join(", ")}. Review the selection before generating.` }, { status: 400 });
 
     const provider = getAiProvider(body.provider);
     const apiKey =
@@ -249,80 +259,35 @@ export async function POST(request: Request) {
       );
     }
 
-    const prompt = promptFor({
-      parentTitle,
-      category,
-      model,
-      theme,
-      productType,
-      count,
-      usedTitles,
-      forCharm,
-    });
     const aiModel =
       provider === "openai"
         ? process.env.OPENAI_CONTENT_MODEL || "gpt-4.1-mini"
         : process.env.GEMINI_CONTENT_MODEL || "gemini-3.6-flash";
 
+    const acceptedTitles: string[] = [];
     for (let attempt = 1; attempt <= MAX_AI_ATTEMPTS; attempt += 1) {
-      if (provider === "openai") {
-        const result = await generateWithOpenAi({
-          apiKey,
-          model: aiModel,
-          prompt,
-          count,
-        });
-        const titles = validTitles(result.titles, count);
-
-        if (titles.length === count) {
-          return NextResponse.json({ titles });
-        }
-
+      const remaining = count - acceptedTitles.length;
+      const exclusions = [...usedTitles, ...acceptedTitles];
+      const prompt = promptFor({ parentTitle, category, model, theme, productType, count: remaining, usedTitles: exclusions, forCharm, attempt });
+      let generated: unknown;
+      try {
+        const result = provider === "openai"
+          ? await generateWithOpenAi({ apiKey, model: aiModel, prompt, count: remaining })
+          : await generateWithGemini({ apiKey, model: aiModel, prompt });
+        generated = result.titles;
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
         continue;
       }
-
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${aiModel}:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: 0.7,
-              responseMimeType: "application/json",
-            },
-          }),
-        },
-      );
-
-      const data = (await response.json()) as GeminiResponse;
-
-      if (!response.ok) {
-        throw new Error(data.error?.message || "Gemini could not generate titles.");
-      }
-
-      const text = data.candidates?.[0]?.content?.parts
-        ?.map((part) => part.text || "")
-        .join("")
-        .trim();
-
-      if (!text) continue;
-
-      try {
-        const titles = validTitles(JSON.parse(text).titles, count);
-
-        if (titles.length === count) {
-          return NextResponse.json({ titles });
-        }
-      } catch {
-        // Ask Gemini again if it returns invalid JSON.
+      acceptedTitles.push(...validGeneratedProductTitles(generated, { count: remaining, model, productType, usedTitles: exclusions, forCharm }));
+      if (acceptedTitles.length === count) {
+        return NextResponse.json({ titles: acceptedTitles, titleWarnings: productTitleWarnings(acceptedTitles) });
       }
     }
 
     return NextResponse.json(
-      { error: "Unable to generate all variant titles. Please try again." },
-      { status: 500 },
+      { error: "AI could not finish the requested titles passing the known keyword, length, model and duplicate checks. No invalid titles were returned. Try again or switch AI provider." },
+      { status: 422 },
     );
   } catch (error) {
     return NextResponse.json(

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { meeshoProductTitlePromptRules, normalizeProductTitle, productTitleKeywordIssues, productTitleWarnings, validGeneratedProductTitles } from "@/lib/product-title-validation";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -103,6 +104,14 @@ function cleanJson(text: string) {
     .trim();
 }
 
+function parseProductDetails(text: string): AiResult {
+  const result: unknown = JSON.parse(cleanJson(text));
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw new SyntaxError("AI must return a product-details JSON object.");
+  }
+  return result as AiResult;
+}
+
 function getAiProvider(value: FormDataEntryValue | null): AiProvider {
   if (value === "gemini" || value === "openai") {
     return value;
@@ -133,14 +142,6 @@ function cleanDesignName(value: unknown) {
     .filter(Boolean)
     .slice(0, 3)
     .join(" ");
-}
-
-function cleanTitle(value: unknown) {
-  return String(value || "")
-    .replace(/[“”"']/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 100);
 }
 
 function isValidDesignName(value: string) {
@@ -256,6 +257,7 @@ Title rules:
 - Do not use emojis, hashtags, quotation marks, prices, SKU, model code, or platform names.
 - Do not claim shockproof, protective, premium, scratch resistant, raised edges,
   wireless charging, or any feature that is not clearly visible.
+${meeshoProductTitlePromptRules()}
 
 Color and material rules:
 - color should be a simple value such as Transparent, Black, Pink, White, Blue.
@@ -349,10 +351,9 @@ async function generateWithGemini({
   }
 
   try {
-    return JSON.parse(cleanJson(responseText)) as AiResult;
+    return parseProductDetails(responseText);
   } catch {
-    console.error("Invalid Gemini JSON:", responseText);
-    throw new Error("Gemini returned an invalid response. Please try again.");
+    throw new SyntaxError("Gemini returned invalid product details.");
   }
 }
 
@@ -454,10 +455,9 @@ async function generateWithOpenAi({
   }
 
   try {
-    return JSON.parse(cleanJson(responseText)) as AiResult;
+    return parseProductDetails(responseText);
   } catch {
-    console.error("Invalid OpenAI JSON:", responseText);
-    throw new Error("OpenAI returned an invalid response. Please try again.");
+    throw new SyntaxError("OpenAI returned invalid product details.");
   }
 }
 
@@ -466,34 +466,7 @@ function getValidTitleOptions(
   selections: ProductSelections,
   titleCount: number,
 ) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const model = selections.model.toLowerCase();
-  const productType = selections.productType.toLowerCase();
-
-  const uniqueTitles = new Map<string, string>();
-
-  value.forEach((item) => {
-    const title = cleanTitle(item);
-    const normalizedTitle = title.toLowerCase();
-
-    const isLongEnough = title.length >= 55 && title.length <= 100;
-    const includesModel = normalizedTitle.includes(model);
-    const includesProductType = normalizedTitle.includes(productType);
-
-    if (
-      isLongEnough &&
-      includesModel &&
-      includesProductType &&
-      !uniqueTitles.has(normalizedTitle)
-    ) {
-      uniqueTitles.set(normalizedTitle, title);
-    }
-  });
-
-  return Array.from(uniqueTitles.values()).slice(0, titleCount);
+  return validGeneratedProductTitles(value, { count: titleCount, model: selections.model, productType: selections.productType });
 }
 
 function imageExtension(image: File) {
@@ -685,6 +658,9 @@ export async function POST(request: Request) {
       productType: getRequiredField(formData, "productType", "a product type"),
     };
 
+    const blockedSelection = productTitleKeywordIssues(`${selections.model} ${selections.productType}`).errors;
+    if (blockedSelection.length) return NextResponse.json({ error: `The selected model/product type contains a known Meesho title error keyword: ${blockedSelection.join(", ")}. Review the selection before generating.` }, { status: 400 });
+
     const image = formData.get("image");
 
     if (!(image instanceof File)) {
@@ -730,11 +706,13 @@ export async function POST(request: Request) {
 
     let finalResult: AiResult | null = null;
     let titleOptions: string[] = [];
+    let correction = "";
 
     for (let attempt = 1; attempt <= MAX_AI_ATTEMPTS; attempt += 1) {
-      const prompt = createPrompt(selections, usedDesignCodes, attempt, titleCount);
-      const result =
-        provider === "openai"
+      const prompt = createPrompt(selections, usedDesignCodes, attempt, titleCount) + correction;
+      let result: AiResult;
+      try {
+        result = provider === "openai"
           ? await generateWithOpenAi({
               apiKey,
               model,
@@ -750,6 +728,11 @@ export async function POST(request: Request) {
               mimeType: image.type,
               prompt,
             });
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) throw error;
+        correction = "\nCorrection: the previous response was invalid JSON. Return only the requested JSON object.";
+        continue;
+      }
 
       const designName = cleanDesignName(result.designName);
       const designCode = cleanDesignCode(result.designCode);
@@ -759,6 +742,8 @@ export async function POST(request: Request) {
         selections,
         titleCount,
       );
+      const blocked = Array.isArray(result.titleOptions) ? [...new Set(result.titleOptions.flatMap((title) => productTitleKeywordIssues(normalizeProductTitle(title)).errors))] : [];
+      correction = `\nCorrection: ${titleCount - titleOptions.length} titles failed validation. ${blocked.length ? `Remove the known error keywords ${blocked.join(", ")} by describing the real design accurately.` : "Check 55–100 character length, exact selected model/product type, no emojis, and distinct titles."} Return the full requested set. Never truncate a title or disguise a model.`;
 
       const isDuplicateCode = usedDesignCodes.includes(designCode);
 
@@ -782,9 +767,9 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Unable to generate the requested title and a unique design code. Please try again.",
+            "AI could not produce the requested titles passing the known keyword, length and product checks, with a unique design code. No invalid titles were saved. Try again or switch AI provider.",
         },
-        { status: 500 },
+        { status: 422 },
       );
     }
 
@@ -813,6 +798,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       titleOptions,
+      titleWarnings: productTitleWarnings(titleOptions),
       color: cleanText(finalResult.color),
       material: cleanText(finalResult.material, "Not specified"),
       designName: savedDesign.designName,

@@ -14,6 +14,7 @@ import {
 import { useMemo, useState } from "react";
 import { BRANDS } from "@/lib/brands";
 import { getWrongDefectiveReturnDiscount } from "@/lib/pricing";
+import ProductTitleNotice from "@/components/ProductTitleNotice";
 
 import type {
   FormData,
@@ -399,6 +400,7 @@ export default function PreviewTable({
           </div>
         )}
 
+        <ProductTitleNotice titles={products.map((product) => product.productName)} />
         {databaseError && (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {databaseError}

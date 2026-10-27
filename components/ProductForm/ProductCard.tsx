@@ -1643,6 +1643,8 @@ export default function ProductCard() {
 
                 provider: aiProvider,
 
+                usedTitles: [...products.map((product) => product.productName), ...Object.values(variantTitles).flat()],
+
                 count:
                   quantity,
               }),
