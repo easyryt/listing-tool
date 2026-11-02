@@ -31,6 +31,11 @@ import { useRouter } from "next/navigation";
 import type { Product as ProductFormProduct } from "@/components/ProductForm/ProductCard";
 import { exportExcel } from "@/lib/excel";
 import ProductTitleNotice from "@/components/ProductTitleNotice";
+import MeeshoImageUpload from "@/components/MeeshoImageUpload";
+import MeeshoImageSetUpload from "@/components/MeeshoImageSetUpload";
+import MeeshoVariantImagesUpload from "@/components/MeeshoVariantImagesUpload";
+import SavedVariantImagesUpload from "@/components/SavedVariantImagesUpload";
+import { savedVariantImageRows, withSavedVariantMainImage } from "@/lib/saved-variant-images";
 import { generateSKU } from "@/lib/sku";
 import { charmVariantNumber, sortCharmsByVersion } from "@/lib/charm-order";
 import {
@@ -1298,6 +1303,40 @@ export default function CharmManager({
             </div>
           </div>
 
+          {rootProduct && <div className="px-5">
+            <div hidden={activeTab !== "stored"}>
+              <SavedVariantImagesUpload
+                key={`${rootProduct.id}:stored-charms`}
+                productId={`${rootProduct.id}:stored-charms`}
+                variants={savedVariantImageRows(charms.map(row => tableEdits[row.id] ?? row), "charm")}
+                disabled={refreshing || bulkSaving || savingIds.size > 0 || !!deletingId}
+                onSave={async (rowId, payload) => {
+                  if (!charms.some(row => row.id === rowId)) throw new Error("This charm is no longer available.");
+                  const result = await apiRequest<CharmResponse>(
+                    `/products/${encodeURIComponent(rootProduct.id)}/charms/${encodeURIComponent(rowId)}`,
+                    { method: "PATCH", body: JSON.stringify(payload) },
+                  );
+                  if (result.charm?.id !== rowId || result.charm.image1 !== payload.image1) throw new Error("The database did not confirm this charm's main image. Retry saving its link.");
+                  setCharms(current => current.map(row => row.id === rowId ? withSavedVariantMainImage(row, result.charm.image1) : row));
+                  setTableEdits(current => current[rowId] ? { ...current, [rowId]: withSavedVariantMainImage(current[rowId], result.charm.image1) } : current);
+                }}
+              />
+            </div>
+            <div hidden={activeTab !== "drafts"}>
+              <MeeshoVariantImagesUpload
+                key={`${rootProduct.id}:draft-charms`}
+                productId={`${rootProduct.id}:draft-charms`}
+                variants={savedVariantImageRows(drafts.map(row => tableEdits[row.id] ?? row), "charm")}
+                disabled={refreshing || bulkSaving || savingIds.size > 0}
+                saveHint="Review the updated draft rows below, then use Apply to Draft or Store in Database."
+                onChange={(rowId, url) => {
+                  const row = drafts.find(value => value.id === rowId);
+                  if (row) setTableEdits(current => ({ ...current, [rowId]: withSavedVariantMainImage(cloneRow(current[rowId] ?? row), url) }));
+                }}
+              />
+            </div>
+          </div>}
+
           {visibleRows.length ? (
             <CharmTable
               rows={visibleRows}
@@ -1738,6 +1777,7 @@ function EditableTableCell({
           className={`${tableInputClass} ${field.locked ? tableLockedClass : ""}`}
         />
       )}
+      {imageField && <MeeshoImageUpload target={{ rowId: row.id, field: imageField }} value={value} onChange={onChange} disabled={field.locked} />}
       {isImage && showApplyImageToAll && (
         <button
           type="button"
@@ -1863,6 +1903,7 @@ function EditorGroup({
         <h3 className="text-sm font-bold text-slate-900">{group.title}</h3>
         <p className="mt-1 text-[11px] text-slate-500">{group.description}</p>
       </div>
+      {isImages && <MeeshoImageSetUpload rowId={row.id} values={row} onChange={onChange} />}
       {isImages && (
         <div className="mb-4 grid grid-cols-4 gap-2">
           {images.map((image, index) => {
@@ -1943,6 +1984,7 @@ function EditorGroup({
                   className={`${inputClass} ${field.locked ? lockedClass : ""}`}
                 />
               )}
+              {imageField && <MeeshoImageUpload target={{ rowId: row.id, field: imageField }} value={value} onChange={url => onChange(imageField, url)} disabled={field.locked} />}
             </div>
           );
         })}

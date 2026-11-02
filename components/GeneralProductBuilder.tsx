@@ -41,6 +41,10 @@ import {
 } from "@/lib/general-product-batch";
 import GeneralProductPreviewTable, { type GeneralProductTableField } from "./GeneralProductPreviewTable";
 import GeneralProductImages from "./GeneralProductImages";
+import MeeshoImageUpload from "./MeeshoImageUpload";
+import MeeshoVariantImagesUpload from "./MeeshoVariantImagesUpload";
+import { withVariantMainImage } from "@/lib/meesho-variant-images";
+import { invalidateMeeshoSelection } from "@/lib/meesho-upload-client";
 import { generalProductImageSource } from "@/lib/general-product-review";
 import { generateGeneralProductVariantTitles } from "@/lib/general-product-variant-generation";
 import { generalProductsRequest, saveGeneralProductBatch, type SavedGeneralProduct } from "@/lib/general-products-api";
@@ -521,6 +525,7 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
     setError("");
     setNotice("");
     setImageFile(file);
+    invalidateMeeshoSelection({ rowId: draft.id, field: "image1" });
     setPreviewUrl(URL.createObjectURL(file));
     setDraft((current) => ({ ...current, productName: "", description: "", image1: "" }));
     setVariants([]);
@@ -585,7 +590,7 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
         theme: result.theme || current.theme,
         description: result.description || current.description,
         includedComponents: current.includedComponents === "Not specified" ? result.includedComponents : current.includedComponents,
-        image1: result.imageUrl || (imageFile ? "" : current.image1),
+        image1: current.image1.startsWith("https://upload.meeshosupplyassets.com/cataloging/") ? current.image1 : result.imageUrl || (imageFile ? "" : current.image1),
       }));
       if (!isStoredProduct) setSkuCodes(result.skuCodes);
       setNotice(
@@ -922,6 +927,7 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
                       className="sr-only"
                     />
                   </label>
+                  <MeeshoImageUpload target={{ rowId: draft.id, field: "image1" }} value={draft.image1} file={imageFile} onChange={url => setField("image1", url)} disabled={busy} label={imageFile ? "Upload selected image to Meesho" : "Upload image to Meesho"} />
                   <div className="mt-4"><Field label="Pack quantity for title and SKU" value={draft.quantity} onChange={changeQuantity} type="number" min={1} max={9999} required disabled={busy} /></div>
                   <button
                     type="button"
@@ -1007,8 +1013,8 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
               </div>
             </Section>
 
-            <Section title="Product images" description="Image 1 is the front image used in the review table. Paste a hosted HTTPS link to preview each image; click a preview to enlarge it.">
-              <GeneralProductImages listing={draft} disabled={busy} onChange={setField} />
+            <Section title="Product images" description="Choose a main image and up to three supporting images together. Check their order, then upload to fill the matching links. Image 1 is the front image used in the review table.">
+              <GeneralProductImages rowId={draft.id} listing={draft} disabled={busy} onChange={setField} />
               <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">These links are included in your Excel export. Changing a link updates its preview immediately; uploading a local image for AI detection does not replace a hosted link until the upload succeeds.</p>
             </Section>
 
@@ -1032,6 +1038,7 @@ export default function GeneralProductBuilder({ savedProductId, initialStep = 4 
           </div>
 
           {activeStep === 3 && <aside className="grid gap-5 lg:grid-cols-2">
+            {!!variants.length&&<div className="lg:col-span-2"><MeeshoVariantImagesUpload productId={draft.id} variants={variants.map((variant,index)=>({...listingRows[index+1],rowId:variant.id,version:variant.version,title:variant.productName}))} disabled={busy} onChange={(rowId,url)=>setVariants(current=>withVariantMainImage(current,rowId,url))}/></div>}
             <Section title="Add AI variants" description={maxNewVariants ? `Add 1–${maxNewVariants} more variants. Existing listings stay intact; each new row gets its own SKU and Group ID.` : "This product has reached the 500-variant limit."}>
               <div className="rounded-2xl bg-violet-50 p-4 text-sm text-violet-950">
                 <div className="flex items-center gap-2 font-bold"><Layers3 className="h-4 w-4" /> Current batch</div>

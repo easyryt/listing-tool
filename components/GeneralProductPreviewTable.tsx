@@ -8,6 +8,7 @@ import { GENERAL_PRODUCT_TEMPLATE_COLUMNS, generalProductPreviewColumns, type Ge
 import { GENERAL_PRODUCT_REVIEW_VIEWS, generalProductReviewColumns, isGeneralProductImageField, type GeneralProductReviewView } from "@/lib/general-product-review";
 import { GeneralProductImagePreview, GeneralProductImageUrlField } from "./GeneralProductImages";
 import GeneralProductRowEditor from "./GeneralProductRowEditor";
+import MeeshoVariantImagesUpload from "./MeeshoVariantImagesUpload";
 
 export type GeneralProductTableField = Exclude<keyof GeneralProductListing, "id">;
 
@@ -75,6 +76,7 @@ export default function GeneralProductPreviewTable({
         <p className="mt-3 text-xs leading-5 text-slate-500">{selectedView.description} {visibleColumns.length} of {templateColumns.length} Excel fields shown. Parent Group 1, then variants 2, 3, 4…</p>
         <p className="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-800">Click a field to edit, or use Edit row for a guided form. Changes are not saved to the database until you click Save batch to database.</p>
       </div>
+      {products.filter(item=>item.variants.length>0).map(item=>{const rows=generalProductBatchRows(item);return <details key={item.draft.id} open={products.length===1} className="mx-5 mb-4 rounded-xl border border-violet-200 px-3 sm:mx-6"><summary className="cursor-pointer py-3 text-xs font-bold text-violet-800">Bulk variant main images · {item.draft.productName}</summary><MeeshoVariantImagesUpload productId={item.draft.id} variants={item.variants.map((variant,index)=>({...rows[index+1],rowId:variant.id,version:variant.version,title:variant.productName}))} disabled={disabled} onChange={(rowId,url)=>onChange(item.draft.id,rowId,"image1",url)}/></details>;})}
       {!products.length ? <p className="m-5 rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">No products in the batch yet. Generate a title, then add the product.</p> : !productRows.length ? <p className="m-5 rounded-xl border border-dashed p-8 text-center text-sm text-slate-500">No listings match “{query}”. <button type="button" onClick={() => setQuery("")} className="font-semibold text-violet-700 hover:underline">Clear search</button></p> : (
         <div className="relative isolate max-h-[650px] overflow-auto">
           <table aria-label="General product batch preview" style={{ minWidth: 160 + visibleColumns.reduce((total, column) => total + columnWidth(column), 0) }} className="w-full table-fixed border-collapse text-xs">
@@ -111,7 +113,7 @@ export default function GeneralProductPreviewTable({
                   </td>
                   {visibleColumns.map(({ field, label, numeric }) => (
                     <td key={field} className={`p-2 align-top ${field === "productName" ? `sm:sticky sm:left-[160px] z-10 min-w-[320px] ${index === 0 ? "bg-blue-50" : "bg-white"}` : ""}`}>
-                      {isGeneralProductImageField(field) ? <GeneralProductImageUrlField label={label} inputLabel={`${label} ${row.sku}`} primary={field === "image1"} compact value={row[field]} disabled={disabled} onChange={(value) => onChange(item.draft.id, row.id, field, value)} /> : field === "groupId" ? <p aria-label={`${label} ${row.sku}`} className="break-all px-2 py-3 font-semibold text-slate-600">{row[field]}</p> : field === "productName" || field === "description" ? (
+                      {isGeneralProductImageField(field) ? <GeneralProductImageUrlField target={{ rowId: row.id, field }} label={label} inputLabel={`${label} ${row.sku}`} primary={field === "image1"} compact value={row[field]} disabled={disabled} onChange={(value) => onChange(item.draft.id, row.id, field, value)} /> : field === "groupId" ? <p aria-label={`${label} ${row.sku}`} className="break-all px-2 py-3 font-semibold text-slate-600">{row[field]}</p> : field === "productName" || field === "description" ? (
                         <textarea aria-label={`${label} ${row.sku}`} value={row[field]} disabled={disabled} onChange={(event) => onChange(item.draft.id, row.id, field, event.target.value)} rows={3} className="w-full min-w-[280px] rounded-lg border border-slate-200 bg-white p-2 leading-5 outline-none focus:border-blue-500" />
                       ) : (
                         <input aria-label={`${label} ${row.sku}`} type={numeric ? "number" : "text"} value={row[field]} disabled={disabled} onChange={(event) => onChange(item.draft.id, row.id, field, event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-2 outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100" />

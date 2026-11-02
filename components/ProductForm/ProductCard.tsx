@@ -16,6 +16,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useId,
   useState,
   type ReactNode,
 } from "react";
@@ -316,6 +317,8 @@ function createLocalId() {
 
 export default function ProductCard() {
   const router = useRouter();
+  const uploadFormId = useId();
+  const [uploadFormEpoch, setUploadFormEpoch] = useState(0);
 
   const {
     register,
@@ -783,6 +786,7 @@ export default function ProductCard() {
 
   const resetEditor =
     () => {
+      setUploadFormEpoch(value => value + 1);
       reset(
         DEFAULT_VALUES,
       );
@@ -2432,6 +2436,9 @@ export default function ProductCard() {
                 </summary>
                 <div className="border-t border-slate-100 p-4 sm:p-5">
                   <AiProductScanner
+                    imageTargetId={editingProductId || `phone-draft-${uploadFormId}-${uploadFormEpoch}`}
+                    imageValue={formData.image1}
+                    onImageUploaded={url => setValue("image1", url, { shouldDirty: true, shouldValidate: true })}
                     category={formData.category}
                     model={selectedModel}
                     theme={formData.theme}
@@ -2469,7 +2476,7 @@ export default function ProductCard() {
               </details>
 
               <ProductDetails register={register} control={control} setValue={setValue} watch={watch} selectedModel={selectedModel} generatedProductTitle={generatedProductTitle} />
-              <ImageLinks register={register} />
+              <ImageLinks register={register} rowId={editingProductId || `phone-draft-${uploadFormId}-${uploadFormEpoch}`} values={formData} onChange={(field, url) => setValue(field, url, { shouldDirty: true, shouldValidate: true })} />
 
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500">
                 <span>{imageCount} of 4 image links added</span>

@@ -3,6 +3,8 @@
 import { Image as ImageIcon } from "lucide-react";
 
 import type { Product } from "./ProductCard";
+import MeeshoImageUpload from "@/components/MeeshoImageUpload";
+import MeeshoImageSetUpload from "@/components/MeeshoImageSetUpload";
 
 export type VariantImageField = "image1" | "image2" | "image3" | "image4";
 
@@ -55,6 +57,7 @@ export default function VariantImageLinks({ variant, onChange }: Props) {
         </div>
       </div>
 
+      <MeeshoImageSetUpload rowId={variant.id} values={variant} onChange={onChange} />
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {IMAGE_FIELDS.map(({ field, label, placeholder }) => (
           <div key={field}>
@@ -69,6 +72,7 @@ export default function VariantImageLinks({ variant, onChange }: Props) {
               placeholder={placeholder}
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-violet-500 focus:ring-2 focus:ring-violet-200"
             />
+            <MeeshoImageUpload target={{ rowId: variant.id, field }} value={variant[field] || ""} onChange={url => onChange(field, url)} />
           </div>
         ))}
       </div>

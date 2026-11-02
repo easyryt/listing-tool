@@ -6,6 +6,9 @@ import { ImageOff, ImagePlus, Maximize2, X } from "lucide-react";
 import type { GeneralProductListing } from "@/lib/general-product-excel";
 import { GENERAL_PRODUCT_IMAGE_FIELDS, generalProductImageSource, type GeneralProductImageField } from "@/lib/general-product-review";
 import GeneralProductDialog from "./GeneralProductDialog";
+import MeeshoImageUpload from "./MeeshoImageUpload";
+import MeeshoImageSetUpload from "./MeeshoImageSetUpload";
+import type { MeeshoTarget } from "@/lib/meesho-upload-contract";
 
 export function GeneralProductImagePreview({ value, label, className = "h-36 w-full", compact = false }: {
   value: string;
@@ -37,7 +40,8 @@ export function GeneralProductImagePreview({ value, label, className = "h-36 w-f
   );
 }
 
-export function GeneralProductImageUrlField({ label, inputLabel = label, value, onChange, disabled = false, primary = false, compact = false }: {
+export function GeneralProductImageUrlField({ label, inputLabel = label, value, onChange, disabled = false, primary = false, compact = false, target }: {
+  target: MeeshoTarget;
   label: string;
   inputLabel?: string;
   value: string;
@@ -63,17 +67,22 @@ export function GeneralProductImageUrlField({ label, inputLabel = label, value, 
         </div>
       </label>
       <p id={hintId} className={`mt-2 text-[11px] leading-4 ${invalid ? "text-rose-600" : "text-slate-500"}`}>{invalid ? "Use a full HTTPS image link for export." : "Paste a link to update the preview. Click the image to enlarge."}</p>
+      <MeeshoImageUpload target={target} value={value} onChange={onChange} disabled={disabled} />
     </div>
   );
 }
 
-export default function GeneralProductImages({ listing, onChange, disabled = false, fields = GENERAL_PRODUCT_IMAGE_FIELDS }: {
+export default function GeneralProductImages({ listing, rowId, onChange, disabled = false, fields = GENERAL_PRODUCT_IMAGE_FIELDS }: {
+  rowId: string;
   listing: Pick<GeneralProductListing, GeneralProductImageField>;
   onChange: (field: GeneralProductImageField, value: string) => void;
   disabled?: boolean;
   fields?: readonly GeneralProductImageField[];
 }) {
-  return <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-    {fields.map((field) => <GeneralProductImageUrlField key={field} label={`Image ${field.slice(-1)} URL`} primary={field === "image1"} value={listing[field]} disabled={disabled} onChange={(value) => onChange(field, value)} />)}
-  </div>;
+  return <>
+    {fields.length === 4 && <MeeshoImageSetUpload rowId={rowId} values={listing} onChange={onChange} disabled={disabled} />}
+    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+    {fields.map((field) => <GeneralProductImageUrlField key={field} target={{ rowId, field }} label={`Image ${field.slice(-1)} URL`} primary={field === "image1"} value={listing[field]} disabled={disabled} onChange={(value) => onChange(field, value)} />)}
+    </div>
+  </>;
 }

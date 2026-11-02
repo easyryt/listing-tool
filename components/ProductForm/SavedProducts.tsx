@@ -41,6 +41,8 @@ import {
 } from "@/lib/charm-import";
 import type { Product as ProductFormProduct } from "./ProductCard";
 import ProductEditorModal from "./ProductEditorModal";
+import SavedVariantImagesUpload from "@/components/SavedVariantImagesUpload";
+import { savedVariantImageRows, withSavedVariantMainImage } from "@/lib/saved-variant-images";
 
 const API_BASE_URL = (
   process.env.NEXT_PUBLIC_API_URL ??
@@ -2812,6 +2814,31 @@ export default function SavedProducts({ initialModel = "" }: SavedProductsProps)
                           />
                         </div>
                       </div>
+
+                      {savedVariantImageRows(variants, "product").length > 0 && (
+                        <details className="mx-4 mb-4 rounded-xl border border-violet-200 px-4">
+                          <summary className="cursor-pointer py-3 text-xs font-bold text-violet-800">
+                            Bulk variant main images · Design {product.designNumber}
+                          </summary>
+                          <SavedVariantImagesUpload
+                            productId={product.id}
+                            variants={savedVariantImageRows(variants, "product")}
+                            disabled={isRefreshing || deletingId === product.id}
+                            onSave={async (rowId, payload) => {
+                              if (!variants.some(row => row.id === rowId)) throw new Error("This variant is no longer in this product.");
+                              const result = await apiRequest<{ product: Product }>(
+                                `/products/${encodeURIComponent(rowId)}/images`,
+                                { method: "PATCH", body: JSON.stringify(payload) },
+                              );
+                              if (result.product?.id !== rowId || result.product.image1 !== payload.image1) throw new Error("The database did not confirm this variant's main image. Retry saving its link.");
+                              setProducts(current => current.map(parent => parent.id === product.id ? {
+                                ...parent,
+                                variants: parent.variants?.map(row => row.id === rowId ? withSavedVariantMainImage(row, result.product.image1) : row),
+                              } : parent));
+                            }}
+                          />
+                        </details>
+                      )}
 
                       {/* VARIANTS */}
                       {expanded &&

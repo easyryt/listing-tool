@@ -1,4 +1,7 @@
 "use client";
+import MeeshoImageUpload from "@/components/MeeshoImageUpload";
+import MeeshoImageSetUpload from "@/components/MeeshoImageSetUpload";
+import type { MeeshoImageField } from "@/lib/meesho-upload-contract";
 
 import { Check, Image as ImageIcon, Loader2, RotateCcw, Save, Search, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -336,6 +339,7 @@ export default function ProductEditorModal({ product, family, onClose, onSaved }
                       <td key={field.key} className="border-b border-r border-slate-200 p-2">
                         <ProductTableInput field={field} row={row} form={form} saving={saving} designs={designs} designsLoading={designsLoading}
                           onLoadDesigns={loadDesigns} onChange={(value) => changeField(row.id, field.key, value)}
+                          onImageSetChange={(slot, url) => changeField(row.id, slot, url)}
                           onSelectDesign={(id) => {
                             const design = designs.find((option) => option.id === id);
                             if (design) setForms((current) => ({ ...current, [row.id]: { ...current[row.id], designId: design.id, designName: design.designName, designCode: design.designCode } }));
@@ -388,10 +392,11 @@ export default function ProductEditorModal({ product, family, onClose, onSaved }
   );
 }
 
-function ProductTableInput({ field, row, form, saving, designs, designsLoading, onLoadDesigns, onChange, onSelectDesign }: {
+function ProductTableInput({ field, row, form, saving, designs, designsLoading, onLoadDesigns, onChange, onSelectDesign, onImageSetChange }: {
   field: TableField; row: Product; form: ProductEditorForm; saving: boolean;
   designs: DesignOption[]; designsLoading: boolean; onLoadDesigns: () => Promise<void>;
   onChange: (value: string) => void; onSelectDesign: (id: string) => void;
+  onImageSetChange: (field: MeeshoImageField, url: string) => void;
 }) {
   const value = form[field.key];
   const inherited = Boolean(field.inherited && row.parentId);
@@ -420,6 +425,8 @@ function ProductTableInput({ field, row, form, saving, designs, designsLoading, 
     </div>}
     {field.multiline ? <textarea rows={3} value={value} disabled={disabled} aria-label={label} placeholder={field.key === "models" ? "One phone model per line" : undefined} onChange={(event) => onChange(event.target.value)} className={CELL_TEXTAREA} />
       : <input type={field.number ? "number" : "text"} value={value} disabled={disabled} aria-label={label} min={field.number ? 0 : undefined} max={field.key === "wrongDefectiveReturnsPrice" ? 30 : undefined} step={field.number ? "any" : undefined} onChange={(event) => onChange(event.target.value)} className={CELL_INPUT} />}
+    {field.key === "image1" && <MeeshoImageSetUpload rowId={row.id} values={form} onChange={onImageSetChange} disabled={disabled} compact />}
+    {field.image && <MeeshoImageUpload target={{ rowId: row.id, field: field.key as MeeshoImageField }} value={value} onChange={onChange} disabled={disabled} />}
     {(inherited || linkedDesign) && <p className="mt-1 text-[10px] text-slate-400">{inherited ? "Inherited from V1 parent" : "Set by the saved design"}</p>}
   </div>;
 }

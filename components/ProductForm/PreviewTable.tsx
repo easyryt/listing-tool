@@ -15,6 +15,8 @@ import { useMemo, useState } from "react";
 import { BRANDS } from "@/lib/brands";
 import { getWrongDefectiveReturnDiscount } from "@/lib/pricing";
 import ProductTitleNotice from "@/components/ProductTitleNotice";
+import MeeshoImageUpload from "@/components/MeeshoImageUpload";
+import MeeshoImageSetUpload from "@/components/MeeshoImageSetUpload";
 
 import type {
   FormData,
@@ -2463,6 +2465,8 @@ function ImageCell({
           </button>
         </div>
 
+        {onUpdate && field === "image1" && <MeeshoImageSetUpload rowId={product.id} values={product} onChange={(slot, url) => onUpdate(product.id, slot, url)} compact />}
+        {onUpdate && <MeeshoImageUpload target={{ rowId: product.id, field }} value={value} onChange={url => onUpdate(product.id, field, url)} />}
         {open && (
             <div className="mt-2 overflow-hidden rounded-lg border border-slate-200 bg-white">
               <ImagePreview

@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:webpack": "next dev --webpack",
+    "test:meesho": "node --test scripts/verify-meesho-upload.cjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

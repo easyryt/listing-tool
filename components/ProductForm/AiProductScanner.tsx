@@ -4,6 +4,8 @@ import { ImageUp, Loader2, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
 import { PHONE_MODELS } from "@/lib/models";
 import ProductTitleNotice from "@/components/ProductTitleNotice";
+import MeeshoImageUpload from "@/components/MeeshoImageUpload";
+import { invalidateMeeshoSelection } from "@/lib/meesho-upload-client";
 import {
   CATEGORIES,
   PRODUCT_TYPES,
@@ -24,6 +26,9 @@ export type GeneratedProductDetails = {
 export type AiProvider = "gemini" | "openai";
 
 type Props = {
+  imageTargetId: string;
+  imageValue: string;
+  onImageUploaded: (url: string) => void;
   category: string;
   model: string;
   theme: string;
@@ -41,6 +46,7 @@ type Props = {
 const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
 
 export default function AiProductScanner({
+  imageTargetId, imageValue, onImageUploaded,
   category,
   model,
   theme,
@@ -58,6 +64,7 @@ export default function AiProductScanner({
   const [previewUrl, setPreviewUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [generatedTitle, setGeneratedTitle] = useState("");
+  const [meeshoImageUrl, setMeeshoImageUrl] = useState("");
 
   useEffect(() => {
     return () => {
@@ -85,6 +92,8 @@ export default function AiProductScanner({
     }
 
     setImage(file);
+    invalidateMeeshoSelection({ rowId: imageTargetId, field: "image1" });
+    setMeeshoImageUrl("");
     setGeneratedTitle("");
     setPreviewUrl(URL.createObjectURL(file));
   };
@@ -161,8 +170,8 @@ export default function AiProductScanner({
           .replace(/[^A-Z]/g, "")
           .slice(0, 8),
         designId: String(result.designId || ""),
-        imageUrl: String(result.imageUrl || ""),
-        thumbnailUrl: String(result.thumbnailUrl || ""),
+        imageUrl: meeshoImageUrl || String(result.imageUrl || ""),
+        thumbnailUrl: meeshoImageUrl || String(result.thumbnailUrl || ""),
       };
 
       if (
@@ -178,7 +187,7 @@ export default function AiProductScanner({
       setGeneratedTitle(generatedTitle);
 
       alert(
-        "Design generated, uploaded to ImageKit, and saved in the design library.",
+        meeshoImageUrl ? "Design generated and saved. Your Meesho image link is kept in this listing." : "Design generated, uploaded to ImageKit, and saved in the design library.",
       );
     } catch (error) {
       console.error(error);
@@ -225,6 +234,7 @@ export default function AiProductScanner({
         </label>
       </div>
 
+      <MeeshoImageUpload target={{ rowId: imageTargetId, field: "image1" }} value={imageValue} file={image} onChange={url => { setMeeshoImageUrl(url); onImageUploaded(url); }} disabled={loading} label={image ? "Upload selected image to Meesho" : "Upload image to Meesho"} />
       <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
         <div className="mb-3">
           <p className="text-sm font-bold text-slate-900">AI generation settings</p>
