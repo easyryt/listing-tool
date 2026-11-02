@@ -1,6 +1,6 @@
 importScripts('client.js', 'drive-core.js', 'drive-upload.js', 'drive-native.js', 'drive-runner.js');
 importScripts('meesho-core.js','meesho-native.js','meesho-runner.js');
-importScripts('listing-core.js');
+importScripts('listing-core.js','listing-browser-stage.js');
 const Drive = globalThis.BrowserTestDrive;
 if(chrome.storage?.local?.setAccessLevel) chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(()=>{});
 async function pairedApi(code,timeoutMs=30000){
@@ -19,8 +19,10 @@ const meeshoRunner=new globalThis.BrowserTestMeeshoRunner({upload:input=>meeshoN
   const saved=await(await pairedApi(code,5000)).request('/api/records',{requestId:record.id,title:record.originalName,sku:'MEESHO-TEST-'+record.id.slice(0,8),sourceUrl:record.sourceUrl,imageUrls:[record.url],filename:record.filename});return{saved:true,id:saved.record.id};
 }});
 let uploaderActive=false;
+const listingBrowserStage=new globalThis.BrowserTestListingBrowserStage();
 const listingNative=new globalThis.BrowserTestMeeshoNative({stage:async({jobId,code})=>{
   globalThis.BrowserTestListing.validate(code,jobId);
+  if(code.mode==='browser')return listingBrowserStage.resolve(code,jobId);
   const response=await fetch(code.origin+'/api/meesho-upload',{method:'POST',credentials:'omit',headers:{'Content-Type':'application/json','X-Listing-Extension':chrome.runtime.id},body:JSON.stringify({action:'resolve',jobId,token:code.token}),signal:AbortSignal.timeout(20000)});
   const result=await response.json();if(!response.ok)throw new Error(result.error||'The listing tool could not supply its staged image.');
   if(result.sha256!==code.sha256||result.bytes!==code.bytes||result.target?.rowId!==code.target.rowId||result.target?.field!==code.target.field)throw new Error('The image fingerprint or destination changed. No file was supplied.');
@@ -52,19 +54,24 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
   return true;
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if(message?.target==='listing-stage-document')return false;
   const listingOrigin=globalThis.BrowserTestListing.origin(sender.tab?.url);
   if(sender.id===chrome.runtime.id&&listingOrigin&&(!sender.frameId||sender.frameId===0)&&message?.type?.startsWith('listing-meesho-')){
     (async()=>{
       const L=globalThis.BrowserTestListing;
-      if(message.type==='listing-meesho-hello')return{ok:true,id:chrome.runtime.id,version:chrome.runtime.getManifest().version,listingUpload:true,singleTabUploads:true};
+      if(message.type==='listing-meesho-hello')return{ok:true,id:chrome.runtime.id,version:chrome.runtime.getManifest().version,listingUpload:true,singleTabUploads:true,browserStaging:!!chrome.downloads?.download&&!!chrome.offscreen?.createDocument};
+      if(message.type==='listing-meesho-prepare'){
+        if(!chrome.downloads?.download||!chrome.offscreen?.createDocument)throw new Error('Reload Browser AI Test 0.9.0 and approve its Downloads permission before preparing images.');
+        return{ok:true,staged:await exclusive(()=>listingBrowserStage.prepare(message,listingOrigin))};
+      }
       if(message.type==='listing-meesho-start'){
         if(message.listing?.origin!==listingOrigin)throw new Error('The upload belongs to a different listing app.');L.validate(message.listing,message.jobId);
         const existing=await listingRunner.get(message.jobId);if(existing&&existing.listing?.origin!==listingOrigin)throw new Error('This operation belongs to a different app.');
-        return{ok:true,job:L.publicJob(await exclusive(()=>listingRunner.start(message,sender.tab.id)))};
+        return{ok:true,job:L.publicJob(await exclusive(async()=>{const job=await listingRunner.start(message,sender.tab.id);if(job.phase==='complete'&&job.listing?.mode==='browser')try{await listingBrowserStage.confirm(job.listing,job.id);}catch{}return job;}))};
       }
       const job=await listingRunner.get(message.jobId);if(!job||job.listing?.origin!==listingOrigin)throw new Error('No upload exists for this listing page.');
       if(message.type==='listing-meesho-status')return{ok:true,job:L.publicJob(job)};
-      if(message.type==='listing-meesho-resume')return{ok:true,job:L.publicJob(await exclusive(()=>listingRunner.resume(message.jobId,sender.tab.id)))};
+      if(message.type==='listing-meesho-resume')return{ok:true,job:L.publicJob(await exclusive(async()=>{const resumed=await listingRunner.resume(message.jobId,sender.tab.id);if(resumed.phase==='complete'&&resumed.listing?.mode==='browser')try{await listingBrowserStage.confirm(resumed.listing,resumed.id);}catch{}return resumed;}))};
       throw new Error('Unsupported listing image operation.');
     })().then(respond).catch(error=>respond({ok:false,error:error.message}));return true;
   }

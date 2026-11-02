@@ -10,7 +10,8 @@ export type MeeshoUpload = {
   canResume?: boolean; superseded?: boolean;
 };
 type Job = { id: string; phase: string; error?: string; staged?: boolean; uploadAttempted?: boolean; record?: MeeshoReceipt };
-type Reply = { ok: boolean; requestId?: string; id?: string; version?: string; listingUpload?: boolean; singleTabUploads?: boolean; job?: Job; error?: string };
+type StagedImage = { id: string; filename: string; originalName: string; token: string; sha256: string; target: MeeshoTarget; type: string; bytes: number; mode?: "browser" };
+type Reply = { ok: boolean; requestId?: string; id?: string; version?: string; listingUpload?: boolean; singleTabUploads?: boolean; browserStaging?: boolean; staged?: StagedImage; job?: Job; error?: string };
 const uploads = new Map<string, MeeshoUpload>(), listeners = new Set<() => void>();
 const calls = new Map<string, { resolve: (r: Reply) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout>; replies?: Reply[] }>();
 let listening = false, restored = false, chain: Promise<unknown> = Promise.resolve();
@@ -34,11 +35,11 @@ export function getMeeshoUpload(target: MeeshoTarget) { return uploads.get(meesh
 export function getMeeshoUploadRevision() { return revision; }
 function request(type: string, data: object = {}, timeout = 12000): Promise<Reply> {
   initialize(); const requestId = crypto.randomUUID(); return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { calls.delete(requestId); reject(new Error("The extension has not replied. Reload Browser AI Test 0.8.0, refresh this page, then check the saved upload.")); }, timeout);
+    const timer = setTimeout(() => { calls.delete(requestId); reject(new Error("The extension has not replied. Reload Browser AI Test 0.9.1, allow this listing site, refresh this page, then check the saved upload.")); }, timeout);
     calls.set(requestId, { resolve, reject, timer }); document.dispatchEvent(new CustomEvent("listing-meesho-request", { detail: JSON.stringify({ requestId, type, ...data }) }));
   });
 }
-export async function checkMeeshoExtension(requireSingleTab = false) {
+async function connectedExtension(requireSingleTab = false) {
   initialize();
   const requestId = crypto.randomUUID(), replies: Reply[] = [];
   await new Promise<void>(resolve => {
@@ -47,10 +48,12 @@ export async function checkMeeshoExtension(requireSingleTab = false) {
     document.dispatchEvent(new CustomEvent("listing-meesho-request", { detail: JSON.stringify({ requestId, type: "listing-meesho-hello" }) }));
   });
   const copies = [...new Map(replies.filter(r => /^[a-p]{32}$/.test(r.id || "")).map(r => [r.id, r])).values()];
-  if (copies.length !== 1 || !copies[0].listingUpload) throw new Error(copies.length > 1 ? "Keep one Browser AI Test extension enabled, then refresh. Multiple copies could upload duplicates." : "Reload your existing Browser AI Test extension to 0.8.0, allow this local listing site, then refresh. No image has uploaded.");
+  if (copies.length !== 1 || !copies[0].listingUpload) throw new Error(copies.length > 1 ? "Keep one Browser AI Test extension enabled, then refresh. Multiple copies could upload duplicates." : `Connect Browser AI Test 0.9.1 and allow access to ${location.origin}, then refresh. Extension 0.8.0 only supports localhost; deployed sites require 0.9.1. No image has uploaded.`);
   if (requireSingleTab && !copies[0].singleTabUploads) throw new Error("Reload Browser AI Test to 0.8.0, then refresh the listing page to use one Meesho tab for bulk uploads. No image has uploaded.");
-  return copies[0].version;
+  if (!["http://localhost:3000", "http://127.0.0.1:3000"].includes(location.origin) && !copies[0].browserStaging) throw new Error("Deployed uploads require Browser AI Test 0.9.1 with Downloads permission. Reload the extension and refresh this page. No image has uploaded.");
+  return copies[0];
 }
+export async function checkMeeshoExtension(requireSingleTab = false) { return (await connectedExtension(requireSingleTab)).version; }
 export function savedMeeshoPanel() { try { const value = localStorage.getItem("listing-meesho-panel") || MEESHO_PANEL; return isMeeshoPanel(value) ? value : MEESHO_PANEL; } catch { return MEESHO_PANEL; } }
 export function saveMeeshoPanel(value: string) { if (!isMeeshoPanel(value)) throw new Error("Use the address of Meesho’s Image Bulk Upload page."); localStorage.setItem("listing-meesho-panel", value); }
 function jobProgress(current: MeeshoUpload, job: Job) {
@@ -86,16 +89,26 @@ export function startMeeshoUpload(file: File, target: MeeshoTarget, initialValue
   put(current);
   return queue(async () => {
     try {
-      await checkMeeshoExtension(singleTab);
+      const extension = await connectedExtension(singleTab);
       put({ ...current, ...getMeeshoUpload(target), phase: "running", progress: 10, message: "Preparing this selected image…" });
       const bytes = await file.arrayBuffer(), digest = await crypto.subtle.digest("SHA-256", bytes);
       const sha256 = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2,"0")).join("");
       const base64 = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(",")[1]); reader.onerror = () => reject(new Error("Could not read the image.")); reader.readAsDataURL(file); });
-      const response = await fetch("/api/meesho-upload", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(25000), body: JSON.stringify({ action: "prepare", jobId: current.id, target, file: { name: file.name, type: file.type, base64 } }) });
-      const staged = await response.json(); if (!response.ok) throw new Error(staged.error || "Could not prepare this image.");
-      if (staged.sha256 !== sha256 || meeshoTargetKey(staged.target) !== meeshoTargetKey(target) || staged.id !== current.id) throw new Error("The prepared image does not match its destination.");
+      const selectedFile = { name: file.name, type: file.type, base64 };
+      let staged: StagedImage;
+      if (extension.browserStaging) {
+        put({ ...current, ...getMeeshoUpload(target), phase: "running", progress: 10, message: "Preparing the selected image on this computer through Chrome…" });
+        const prepared = await request("listing-meesho-prepare", { jobId: current.id, target, sha256, file: selectedFile }, 65000);
+        if (!prepared.staged || prepared.staged.mode !== "browser") throw new Error("Chrome did not confirm preparing this selected image.");
+        staged = prepared.staged;
+      } else {
+        const response = await fetch("/api/meesho-upload", { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(25000), body: JSON.stringify({ action: "prepare", jobId: current.id, target, file: selectedFile }) });
+        const result = await response.json(); if (!response.ok) throw new Error(result.error || "Could not prepare this image.");
+        staged = result;
+      }
+      if (staged.sha256 !== sha256 || !validMeeshoTarget(staged.target) || meeshoTargetKey(staged.target) !== meeshoTargetKey(target) || staged.id !== current.id || staged.bytes !== file.size || staged.type !== file.type) throw new Error("The prepared image does not match its destination.");
       Object.assign(current, getMeeshoUpload(target), { filename: staged.filename, sha256, progress: 20, phase: "running" }); put(current);
-      await follow(current, () => request("listing-meesho-start", { jobId: current.id, sourceUrl, listing: { origin: location.origin, token: staged.token, sha256, target, filename: staged.filename, bytes: file.size, originalName: staged.originalName, type: file.type } }, 170000));
+      await follow(current, () => request("listing-meesho-start", { jobId: current.id, sourceUrl, listing: { origin: location.origin, ...(staged.mode === "browser" ? { mode: "browser" } : {}), token: staged.token, sha256, target, filename: staged.filename, bytes: file.size, originalName: staged.originalName, type: file.type } }, 170000));
     } catch (error) { put({ ...(getMeeshoUpload(target) || current), phase: "error", message: error instanceof Error ? error.message : "Could not upload this image." }); }
   });
 }

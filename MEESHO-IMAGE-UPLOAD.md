@@ -1,6 +1,6 @@
 # Direct Meesho image upload
 
-Use **Upload to Meesho** beside an image field in the listing tool. PNG/JPG images up to 4 MB are supported. The control also appears beside the selected image in the AI assistants, in batch review, and in saved-product/variant editors.
+Use **Upload to Meesho** beside an image field in the listing tool. PNG/JPG images up to 4 MB are supported. The control also appears beside the selected image in the AI assistants, in batch review, and in saved-product/variant editors. Extension **0.9.1** supports **https://listing-tool-three.vercel.app**, as well as the local listing app.
 
 The custom Chrome extension reuses one extension-owned Meesho Image Bulk Upload tab, supplies the selected image, requests its direct URL, and fills the original image field. The ordinary listing save flow stores that field in your product database; uploading an image does not separately commit the listing or publish a catalog.
 
@@ -43,14 +43,24 @@ The phone catalog and design 359 charm page were checked in Chrome. The shared u
 
 ## Setup
 
-1. Run the listing tool locally at **http://localhost:3000** or **http://127.0.0.1:3000** in Chrome. Use `npm run dev`, or `npm run dev:webpack` if Turbopack’s CSS worker fails on this computer.
-2. Reload the existing **Browser AI Test — Local Listing Assistant** extension in `chrome://extensions`. Confirm **0.8.0**. This update uses the same permissions as 0.7.0; no additional access is requested.
+1. Open **https://listing-tool-three.vercel.app** in Chrome after redeploying the updated frontend. Local development at **http://localhost:3000** or **http://127.0.0.1:3000** also works. Use `npm run dev`, or `npm run dev:webpack` if Turbopack’s CSS worker fails on this computer.
+2. Reload the existing **Browser AI Test — Local Listing Assistant** extension in `chrome://extensions`. Confirm **0.9.1**. Chrome will request the added **Downloads** permission and access to the exact deployed listing domain. No wildcard access to other Vercel sites is requested.
 3. For a fresh installation, use **Load unpacked** with this repository’s `browser-extension` folder. A distributable ZIP is served at **/listing-meesho-extension.zip**. Keep one extension copy enabled.
 4. Refresh the listing page. Sign in to Meesho in Chrome. The settings icon beside an upload button lets you set your own Meesho Image Bulk Upload URL; the default is the page supplied in this chat.
 
-The standalone test server on port 4317 is **not required** for listing uploads. The listing app stages the exact selected bytes locally under `.local/meesho-staging/`, outside public files and Git. A per-operation token lets only the paired operation resolve that image; no arbitrary local file path can be requested. The image bytes are SHA-256 checked again before native file assignment. The local staging store stops at 250 files or 100 MB and never silently deletes your images.
+The standalone test server on port 4317 is **not required** for listing uploads. With extension 0.9.1 the frontend sends the selected bytes directly to its fixed extension workflow. The extension validates the file signature, size, SHA-256, product row and image slot. A packaged offscreen Blob helper preserves images up to 4 MB without a huge data URL. Chrome Downloads creates an operation-specific copy under **Downloads/listing-tool/meesho-staging/**. Only the download ID created for that operation is queried. Chrome must confirm the completed file, expected path and byte length before native file assignment. The web app never supplies arbitrary local paths. Prepared copies remain on the computer. The metadata cache stops at 250 unfinished files or 100 MB, expiring completed metadata when needed. Originals and prepared files are never silently deleted.
 
-This version requires the local listing server and Chrome to be on the same computer. A deployed/cloud listing server would need a local companion for native disk-file delivery; this version deliberately rejects that configuration instead of returning a server path Chrome cannot read.
+### Activating the deployed-site fix
+
+1. Redeploy the frontend changes, including the new `browser-extension/listing-browser-stage.js`, `listing-stage.html`, `listing-stage.js`, updated manifest and `public/listing-meesho-extension.zip`.
+2. Reload or load unpacked the updated `browser-extension` folder in Chrome. Confirm **0.9.1**, approve Downloads and access to **listing-tool-three.vercel.app**, then refresh the listing page. Chrome's extension settings require a manual user action.
+3. Upload from the listing app. No local server, API key or paid AI request is needed for the image upload itself. The old live frontend continues to use server staging until it is redeployed, even after updating the extension.
+
+Validation for 0.9.1: 72 extension tests and 18 listing-upload tests pass, including a 4 MB Blob round-trip, exact deployed-origin checks, forbidden origin/path rejection, resumed preparation, permission detection and no cloud filesystem request. TypeScript and targeted frontend lint pass. Chrome's stored object keys may be reordered; bindings compare row IDs and image fields individually, and the storage fixture reproduces this behavior.
+
+The real Chrome preparation flow was verified with extension **0.9.1** and a user-selected `1.png`: the download copy exactly matched the provided source SHA-256 and 1,265,579-byte length, Meesho returned the operation's direct image URL, Image 1 reached **100%**, and Images 2–4 stayed empty. The existing operation resumed after correcting the key-order comparison; its original prepared copy was retained. No AI or product-database save was used. This real test ran against the updated local frontend using the same browser-preparation protocol as the deployed-site flow. Vercel still needs the frontend changes redeployed before its upload uses that protocol.
+
+Version 0.8.0 was deliberately local-only: its content script could not connect to a deployed site, and a cloud server's staged path could not be read by Chrome on the user's computer. Merely adding the Vercel hostname would not fix file delivery. Version 0.9.1 prepares the file on the browser's computer instead, so the deployed website does not need a local server or a writable Vercel directory. The legacy server staging endpoint remains available only on localhost for 0.8.0 compatibility. A different production or preview domain needs its own explicit extension allowlist entry.
 
 ## Matching and progress
 
