@@ -54,14 +54,13 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
   return true;
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if(message?.target==='listing-stage-document')return false;
   const listingOrigin=globalThis.BrowserTestListing.origin(sender.tab?.url);
   if(sender.id===chrome.runtime.id&&listingOrigin&&(!sender.frameId||sender.frameId===0)&&message?.type?.startsWith('listing-meesho-')){
     (async()=>{
       const L=globalThis.BrowserTestListing;
-      if(message.type==='listing-meesho-hello')return{ok:true,id:chrome.runtime.id,version:chrome.runtime.getManifest().version,listingUpload:true,singleTabUploads:true,browserStaging:!!chrome.downloads?.download&&!!chrome.offscreen?.createDocument};
+      if(message.type==='listing-meesho-hello')return{ok:true,id:chrome.runtime.id,version:chrome.runtime.getManifest().version,listingUpload:true,singleTabUploads:true,browserStaging:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript,downloadFreeUploads:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript};
       if(message.type==='listing-meesho-prepare'){
-        if(!chrome.downloads?.download||!chrome.offscreen?.createDocument)throw new Error('Reload Browser AI Test 0.9.0 and approve its Downloads permission before preparing images.');
+        if(!chrome.storage?.session?.set||!chrome.scripting?.executeScript)throw new Error('Reload Browser AI Test 0.10.0 and refresh the listing page to upload without downloading a copy.');
         return{ok:true,staged:await exclusive(()=>listingBrowserStage.prepare(message,listingOrigin))};
       }
       if(message.type==='listing-meesho-start'){

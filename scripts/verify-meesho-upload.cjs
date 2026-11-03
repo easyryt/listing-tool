@@ -42,7 +42,7 @@ function clientFixture(options={}){
     fetch:async(url,init)=>{const input=JSON.parse(init.body);calls.push({type:"stage",id:input.jobId,target:input.target});const bytes=Buffer.from(input.file.base64,"base64"),descriptor={id:input.jobId,target:input.target,type:input.file.type,originalName:input.file.name,bytes:bytes.length,token:"c".repeat(64),sha256:crypto.createHash("sha256").update(bytes).digest("hex"),filename:`browser-ai-meesho-test-20261102000000-${input.jobId.slice(0,8)}.png`};staged.set(input.jobId,descriptor);return{ok:true,json:async()=>descriptor};}
   });context.exports=context.module.exports;
   doc.addEventListener("listing-meesho-request",event=>{const m=JSON.parse(event.detail);const reply=data=>doc.dispatchEvent(new CustomEvent("listing-meesho-response",{detail:JSON.stringify({ok:true,requestId:m.requestId,...data})}));
-    if(m.type==="listing-meesho-hello"){reply({id:"a".repeat(32),version:"0.7.0",listingUpload:true,singleTabUploads:!options.oldExtension,browserStaging:!!options.browserStaging});return;}
+    if(m.type==="listing-meesho-hello"){reply({id:"a".repeat(32),version:"0.10.0",listingUpload:true,singleTabUploads:!options.oldExtension,browserStaging:true,downloadFreeUploads:options.downloadFreeUploads!==false});return;}
     if(m.type==="listing-meesho-prepare"){const bytes=Buffer.from(m.file.base64,"base64"),descriptor={id:m.jobId,target:m.target,type:m.file.type,originalName:m.file.name,mode:"browser",bytes:bytes.length,token:"c".repeat(64),sha256:crypto.createHash("sha256").update(bytes).digest("hex"),filename:`browser-ai-meesho-test-20261102000000-${m.jobId.slice(0,8)}.png`};staged.set(m.jobId,descriptor);calls.push({type:"browser-stage",id:m.jobId,target:m.target});reply({staged:descriptor});return;}
     if(m.type==="listing-meesho-status"){reply({job:{id:m.jobId,phase:"finding-file"}});return;}
     if(m.type==="listing-meesho-start"){calls.push({type:"upload",id:m.jobId,target:m.listing.target,origin:m.listing.origin,mode:m.listing.mode});active++;maxActive=Math.max(maxActive,active);const complete=()=>{active--;const s=staged.get(m.jobId),record={id:m.jobId,filename:s.filename,sha256:s.sha256,target:options.wrongTarget?{...s.target,field:"image4"}:s.target,url:`https://upload.meeshosupplyassets.com/cataloging/123/${s.filename}`};reply({job:{id:m.jobId,phase:"complete",record}});};if(options.hold)waiting.push(complete);else complete();}
@@ -131,16 +131,18 @@ test("nine variant main images queue independently while a legacy multi-tab exte
   for(const expected of ticket.jobs){const job=f.client.getMeeshoUpload(expected.target);assert.equal(job.receipt.target.field,'image1');assert.equal(job.receipt.target.rowId,expected.target.rowId);assert.equal(job.progress,95);}
   assert.equal(f.client.getMeeshoUpload({rowId:'variant-11',field:'image1'}),null);
   assert.equal(f.client.getMeeshoUpload({rowId:'variant-2',field:'image2'}),null);
-  const legacy=clientFixture({oldExtension:true});await legacy.client.startMeeshoUpload(new File([makePng()],'2.png',{type:'image/png'}),target,'',true);assert.equal(legacy.calls.length,0);assert.match(legacy.client.getMeeshoUpload(target).message,/0.8.0/);
+  const legacy=clientFixture({oldExtension:true});await legacy.client.startMeeshoUpload(new File([makePng()],'2.png',{type:'image/png'}),target,'',true);assert.equal(legacy.calls.length,0);assert.match(legacy.client.getMeeshoUpload(target).message,/0.10.0/);
 });
-test("deployed uploads use Chrome preparation without any server filesystem request",async()=>{
+test("deployed uploads use browser memory and block extensions that would download a copy",async()=>{
   const origin='https://listing-tool-three.vercel.app',f=clientFixture({origin,browserStaging:true});
   const ticket=f.client.startMeeshoImageBatch([2,3].map(version=>({file:new File([makePng()],`${version}.png`,{type:'image/png'}),target:{rowId:`cloud-v${version}`,field:'image1'},initialValue:'old'})));
   await ticket.finished;assert.equal(f.calls.filter(c=>c.type==='stage').length,0);assert.equal(f.calls.filter(c=>c.type==='browser-stage').length,2);assert.equal(f.maxActive(),1);
   for(const entry of ticket.jobs){const upload=f.client.getMeeshoUpload(entry.target);assert.equal(upload.phase,'ready');assert.equal(upload.receipt.target.rowId,entry.target.rowId);assert.equal(upload.receipt.target.field,'image1');}
   assert.ok(f.calls.filter(c=>c.type==='upload').every(c=>c.origin===origin&&c.mode==='browser'));
-  const old=clientFixture({origin});await old.client.startMeeshoUpload(new File([makePng()],'2.png',{type:'image/png'}),target,'');
-  assert.equal(old.calls.length,0);assert.match(old.client.getMeeshoUpload(target).message,/Deployed uploads require.*0.9.1/);
+  for(const site of [origin,'http://localhost:3000']){
+    const old=clientFixture({origin:site,downloadFreeUploads:false});await old.client.startMeeshoUpload(new File([makePng()],'2.png',{type:'image/png'}),target,'');
+    assert.equal(old.calls.length,0);assert.match(old.client.getMeeshoUpload(target).message,/without a downloaded copy requires.*0.10.0/);
+  }
 });
 test("saved phone and charm filenames map to actual family versions, excluding parents and unknown versions",()=>{
   const productRows=savedVariantImages.savedVariantImageRows([
