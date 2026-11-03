@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, Copy, ImageUp, LoaderCircle, Settings2 } from "lucide-react";
+import UploadedImagePreview from "./UploadedImagePreview";
 import { canApplyMeeshoReceipt, type MeeshoTarget } from "@/lib/meesho-upload-contract";
 import { checkMeeshoExtension, getMeeshoUpload, markMeeshoApplied, resumeMeeshoUpload, savedMeeshoPanel, saveMeeshoPanel, startMeeshoUpload, subscribeMeesho } from "@/lib/meesho-upload-client";
 
@@ -35,7 +36,7 @@ export default function MeeshoImageUpload({ target, value, onChange, disabled = 
       <div role="progressbar" aria-label={`Meesho upload and link progress for ${target.field}`} aria-valuenow={upload.progress} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-slate-200"><div style={{ width: `${upload.progress}%` }} className={`h-full rounded-full transition-[width] duration-300 ${upload.phase === "applied" ? "bg-emerald-500" : "bg-violet-500"}`} /></div>
       <p role="status" className={`mt-2 flex items-start gap-1 text-[11px] leading-4 ${upload.phase === "error" || conflict ? "text-rose-600" : upload.phase === "applied" ? "text-emerald-700" : "text-slate-600"}`}>{upload.phase === "applied" && <Check size={13} className="shrink-0" />}{conflict ? "This field changed during upload. Its newer value was preserved." : upload.message}</p>
       {upload.phase === "error" && upload.canResume && <button type="button" disabled={disabled} onClick={() => void resumeMeeshoUpload(target)} className="mt-2 text-xs font-semibold text-violet-700">Check / retry this saved upload</button>}
-      {receipt && <div className="mt-2 flex flex-wrap gap-3 text-[11px] font-semibold text-violet-700"><a href={receipt.url} target="_blank" rel="noreferrer">Preview uploaded image</a><button type="button" onClick={() => void navigator.clipboard.writeText(receipt.url).catch(() => setError("Select the image URL field and press Ctrl+C."))} className="inline-flex items-center gap-1"><Copy size={11} />Copy link</button>{conflict && <button type="button" disabled={disabled} onClick={() => { onChange(receipt.url); }}>Use this uploaded image</button>}</div>}
+      {receipt && <div className="mt-2 space-y-2"><UploadedImagePreview url={receipt.url} name={upload.originalName} /><div className="flex flex-wrap gap-3 text-[11px] font-semibold text-violet-700"><button type="button" onClick={() => void navigator.clipboard.writeText(receipt.url).catch(() => setError("Select the image URL field and press Ctrl+C."))} className="inline-flex items-center gap-1"><Copy size={11} />Copy link</button>{conflict && <button type="button" disabled={disabled} onClick={() => { onChange(receipt.url); }}>Use this uploaded image</button>}</div></div>}
     </div>}
     {error && <p role="alert" className="text-xs text-rose-600">{error}</p>}
   </div>;
