@@ -17,6 +17,7 @@
 /.next/
 /.local/
 /out/
+/public/claims-ocr/
 
 # production
 /build

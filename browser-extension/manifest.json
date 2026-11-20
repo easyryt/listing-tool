@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Browser AI Test — Local Listing Assistant",
-  "version": "0.10.0",
-  "description": "Upload selected images, capture image URLs and save test listing records through a paired local app.",
+  "version": "0.11.1",
+  "description": "Prepare Meesho claims with local evidence, upload product images and capture confirmed image links.",
   "permissions": [
     "activeTab",
     "scripting",
@@ -35,7 +35,8 @@
         "https://listing-tool-three.vercel.app/*"
       ],
       "js": [
-        "listing-bridge.js"
+        "listing-bridge.js",
+        "claims-bridge.js"
       ],
       "run_at": "document_start"
     }

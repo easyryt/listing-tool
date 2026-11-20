@@ -1,0 +1,9 @@
+Generated with the built-in image_gen tool on 2026-11-20.
+Final reusable demo: demo-shipping-label-clear-v2.png
+Ambiguous underscore regression case: demo-shipping-label-2026-11-20.png
+
+Prompt:
+Use case: productivity-visual. Create one clean, highly legible, front-facing demo return-shipping label image for testing OCR in a web application. Landscape white paper, plain white background, thin black border, black printed sans-serif text, flat straight-on view, no perspective distortion, no shadows over text, very generous spacing, large crisp lettering. All data is synthetic. Large prominent heading at top exactly: "DEMO SHIPPING LABEL". A smaller subtitle exactly: "TEST DATA ONLY - DO NOT SUBMIT A CLAIM". Then three very clearly labelled separate rows with the following exact text, preserving every digit and underscore: "Sub Order Number: 123456789012345_1"; "AWB Number: SF123456789IN"; "Packet ID: P12345678". Under these rows add smaller text exactly: "Packet condition: Intact" and "Return issue: Wrong return (demo)". Do not add other identifiers, barcode bars, QR codes, address, phone, company logo or extra numbers. The 3 identifier rows are the primary visual and must be large enough to read without zoom. Nothing cropped. No watermark apart from the requested DEMO/TEST labels.
+
+Final variant edit prompt:
+Edit this synthetic demo shipping label. Change only the value printed after 'Sub Order Number:' to exactly '123456789012345' (15 digits, with no underscore and no suffix). Keep every other word, number, colour, composition and border unchanged. In particular preserve exactly 'AWB Number: SF123456789IN' and 'Packet ID: P12345678'. Keep the prominent DEMO and TEST DATA ONLY warnings. Maintain very crisp, readable black typography on white.

@@ -3,15 +3,21 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prepare:ocr": "node scripts/prepare-claims-ocr.cjs",
+    "predev": "npm run prepare:ocr",
+    "predev:webpack": "npm run prepare:ocr",
+    "prebuild": "npm run prepare:ocr",
     "dev": "next dev",
     "dev:webpack": "next dev --webpack",
     "test:meesho": "node --test scripts/verify-meesho-upload.cjs",
+    "test:claims": "node --test scripts/verify-meesho-claims.cjs scripts/verify-meesho-labels.cjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.7.1",
+    "@tesseract.js-data/eng": "1.0.0",
     "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "lucide-react": "^1.28.0",
@@ -19,7 +25,9 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "^7.84.0",
-    "zod": "^4.4.3"
+    "tesseract.js": "7.0.0",
+    "zod": "^4.4.3",
+    "zxing-wasm": "3.1.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

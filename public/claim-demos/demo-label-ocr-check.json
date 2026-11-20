@@ -1,0 +1,50 @@
+{
+  "verification": "Local OCR engine and app parser; live Chrome upload blocked by active-URL verification.",
+  "cases": [
+    {
+      "image": "demo-shipping-label-clear-v2.png",
+      "confidence": 92,
+      "candidates": {
+        "subOrderNumber": [
+          "123456789012345"
+        ],
+        "awbNumber": [
+          "SF123456789IN"
+        ],
+        "packetId": [
+          "P12345678"
+        ]
+      },
+      "warnings": [],
+      "automaticValues": {
+        "subOrderNumber": "123456789012345",
+        "awbNumber": "SF123456789IN",
+        "packetId": "P12345678"
+      },
+      "preservesExistingValues": true,
+      "passed": true
+    },
+    {
+      "image": "demo-shipping-label-2026-11-20.png",
+      "confidence": 94,
+      "candidates": {
+        "subOrderNumber": [],
+        "awbNumber": [
+          "SF123456789IN"
+        ],
+        "packetId": [
+          "P12345678"
+        ]
+      },
+      "warnings": [
+        "Sub-order digits are separated. Check the photo for a missing underscore or dash and enter the number exactly as printed."
+      ],
+      "automaticValues": {
+        "awbNumber": "SF123456789IN",
+        "packetId": "P12345678"
+      },
+      "preservesExistingValues": true,
+      "passed": true
+    }
+  ]
+}

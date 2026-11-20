@@ -1,6 +1,7 @@
 importScripts('client.js', 'drive-core.js', 'drive-upload.js', 'drive-native.js', 'drive-runner.js');
 importScripts('meesho-core.js','meesho-native.js','meesho-runner.js');
 importScripts('listing-core.js','listing-browser-stage.js');
+importScripts('claims-core.js','claims-page.js','claims-runner.js');
 const Drive = globalThis.BrowserTestDrive;
 if(chrome.storage?.local?.setAccessLevel) chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(()=>{});
 async function pairedApi(code,timeoutMs=30000){
@@ -29,6 +30,7 @@ const listingNative=new globalThis.BrowserTestMeeshoNative({stage:async({jobId,c
   return result;
 }});
 const listingRunner=new globalThis.BrowserTestMeeshoRunner({namespace:'listingMeesho',upload:input=>listingNative.upload(input)});
+const claimsRunner=new globalThis.BrowserTestClaimsRunner();
 async function exclusive(action){if(uploaderActive)throw new Error('An image upload is already running.');uploaderActive=true;try{return await action();}finally{uploaderActive=false;}}
 chrome.action.onClicked.addListener(async tab => {
   if (!tab.id) return;
@@ -55,6 +57,13 @@ chrome.runtime.onMessageExternal.addListener((message, sender, respond) => {
 });
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   const listingOrigin=globalThis.BrowserTestListing.origin(sender.tab?.url);
+  if(sender.id===chrome.runtime.id&&listingOrigin&&(!sender.frameId||sender.frameId===0)&&message?.type?.startsWith('claims-')){
+    (async()=>{
+      if(message.type==='claims-hello')return{ok:true,id:chrome.runtime.id,version:chrome.runtime.getManifest().version,claimsAutofill:true};
+      if(message.type==='claims-prepare'){const job=await claimsRunner.prepare(message,listingOrigin,sender.tab.id);return{ok:true,operationId:job.operationId};}
+      return{ok:true,...await claimsRunner.step(message,listingOrigin,sender.tab.id)};
+    })().then(respond).catch(error=>respond({ok:false,error:error.message}));return true;
+  }
   if(sender.id===chrome.runtime.id&&listingOrigin&&(!sender.frameId||sender.frameId===0)&&message?.type?.startsWith('listing-meesho-')){
     (async()=>{
       const L=globalThis.BrowserTestListing;

@@ -1,0 +1,59 @@
+{
+  "manifest_version": 3,
+  "name": "Browser AI Test — Local Listing Assistant",
+  "version": "0.11.1",
+  "description": "Prepare Meesho claims with local evidence, upload product images and capture confirmed image links.",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "clipboardWrite",
+    "debugger"
+  ],
+  "host_permissions": [
+    "http://127.0.0.1:4317/*",
+    "https://drive.google.com/*",
+    "https://supplier.meesho.com/*",
+    "http://localhost:3000/*",
+    "http://127.0.0.1:3000/*",
+    "https://listing-tool-three.vercel.app/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "http://127.0.0.1:4317/*"
+      ],
+      "js": [
+        "uploader-bridge.js"
+      ],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "http://localhost:3000/*",
+        "http://127.0.0.1:3000/*",
+        "https://listing-tool-three.vercel.app/*"
+      ],
+      "js": [
+        "listing-bridge.js",
+        "claims-bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://127.0.0.1/*"
+    ]
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open automatic Drive uploader"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:4317 http://localhost:3000 http://127.0.0.1:3000"
+  },
+  "minimum_chrome_version": "116"
+}
