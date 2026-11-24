@@ -1,0 +1,9 @@
+▲ Next.js 16.3.0 (webpack)
+- Local:         http://127.0.0.1:3001
+- Network:       http://127.0.0.1:3001
+- Environments: .env.local
+✓ Ready in 980ms
+✓ Running next.config.ts took 95ms
+
+○ Compiling /claims ...
+ HEAD /claims 200 in 4.5s (next.js: 4.2s, application-code: 298ms)

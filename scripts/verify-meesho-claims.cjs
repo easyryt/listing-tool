@@ -110,3 +110,58 @@ test('the frontend blocks missing or multiple extension copies before preparing 
   }
   assert.equal(await check(['a'.repeat(32),'a'.repeat(32)]),'0.11.0');await assert.rejects(check([]),/Update and reload/);await assert.rejects(check(['a'.repeat(32),'b'.repeat(32)]),/one Browser AI Test/);
 });
+
+function videoRecorderFixture() {
+  const maxBytes = 100 * 1024 * 1024;
+  const instances = [];
+  class MediaRecorder {
+    state = 'inactive';
+    constructor(_stream, options) { this.options = options; instances.push(this); }
+    start() { this.state = 'recording'; }
+    stop() { this.state = 'inactive'; }
+  }
+  const testModule = { exports: {} };
+  const context = vm.createContext({ module: testModule, exports: testModule.exports, File, MediaRecorder, require: () => ({ MAX_VIDEO_BYTES: maxBytes }) });
+  const captureCode = fs.readFileSync(path.join(root, 'lib/claim-video-capture.ts'), 'utf8');
+  vm.runInContext(ts.transpileModule(captureCode, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, context);
+  const files = [], errors = [];
+  const capture = testModule.exports.captureClaimVideo({}, file => files.push(file), message => errors.push(message));
+  return { capture, recorder: instances[0], files, errors, maxBytes };
+}
+
+test('claim recording includes the last MP4 chunk after Stop and preserves every byte', async () => {
+  const { capture, recorder, files, errors } = videoRecorderFixture();
+  assert.equal(recorder.options.mimeType, 'video/mp4;codecs=avc1');
+  recorder.ondataavailable({ data: new Blob([mp4.subarray(0, 16)]) });
+  assert.equal(capture.stop(), true);
+  assert.equal(capture.stop(), false);
+  recorder.ondataavailable({ data: new Blob([mp4.subarray(16)]) });
+  recorder.onstop();
+  assert.deepEqual(errors, []);
+  assert.equal(files.length, 1);
+  assert.equal(files[0].type, 'video/mp4');
+  assert.match(files[0].name, /^unboxing-.*\.mp4$/);
+  assert.deepEqual(Buffer.from(await files[0].arrayBuffer()), mp4);
+});
+
+test('cancelled, interrupted and oversized recordings produce no evidence file', () => {
+  const cancelled = videoRecorderFixture();
+  cancelled.capture.cancel();
+  cancelled.recorder.ondataavailable({ data: new Blob([mp4]) });
+  cancelled.recorder.onstop();
+  assert.deepEqual(cancelled.files, []);
+  assert.deepEqual(cancelled.errors, []);
+
+  const interrupted = videoRecorderFixture();
+  interrupted.recorder.ondataavailable({ data: new Blob([mp4]) });
+  interrupted.recorder.stop();
+  interrupted.recorder.onstop();
+  assert.deepEqual(interrupted.files, []);
+  assert.match(interrupted.errors[0], /interrupted/);
+
+  const oversized = videoRecorderFixture();
+  oversized.recorder.ondataavailable({ data: { size: oversized.maxBytes + 1 } });
+  oversized.recorder.onstop();
+  assert.deepEqual(oversized.files, []);
+  assert.match(oversized.errors[0], /100 MB/);
+});

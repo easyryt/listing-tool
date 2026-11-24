@@ -1,12 +1,13 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUpRight, Camera, Check, ChevronDown, ClipboardCheck, FileVideo, HardDrive, ImagePlus, LoaderCircle, Plus, Save, Settings2, Trash2, Upload } from "lucide-react";
 import { CLAIM_ISSUES, EVIDENCE_LABELS, EVIDENCE_ROLES, REQUIRED_EVIDENCE, claimProblems, describeEvidence, emptyClaim, type ClaimDraft, type ClaimEvidence, type ClaimIssue, type EvidenceRole } from "@/lib/meesho-claims";
 import { deleteClaim, listClaims, readClaimEvidence, saveClaim } from "@/lib/meesho-claims-store";
 import { checkClaimsExtension, openPreparedClaim, prepareMeeshoClaim } from "@/lib/meesho-claims-client";
 import ClaimLabelScanner, { type ClaimLabelScannerHandle } from "@/components/ClaimLabelScanner";
+import ClaimPhoneCamera from "@/components/ClaimPhoneCamera";
 import MeeshoRecordingGuide from "@/components/MeeshoRecordingGuide";
 import { CLAIM_IDENTIFIER_LABELS, type ClaimIdentifier, type ClaimIdentifiers } from "@/lib/meesho-label-reader";
 
@@ -36,7 +37,7 @@ function ClaimIdentifierField({ field, value, disabled, onChange, onPhoto }: { f
   );
 }
 
-function EvidenceCard({ role, entry, file, disabled, onChoose, onRemove }: { role: EvidenceRole; entry?: ClaimEvidence; file?: File; disabled: boolean; onChoose: (file: File) => void; onRemove: () => void }) {
+function EvidenceCard({ role, entry, file, disabled, onChoose, onRemove, recorder }: { role: EvidenceRole; entry?: ClaimEvidence; file?: File; disabled: boolean; onChoose: (file: File) => void; onRemove: () => void; recorder?: ReactNode }) {
   const picker = useRef<HTMLInputElement>(null);
   const [preview, setPreview] = useState<{ id: string; url: string } | null>(null);
   const [missing, setMissing] = useState("");
@@ -88,6 +89,7 @@ function EvidenceCard({ role, entry, file, disabled, onChoose, onRemove }: { rol
           </div>
         </>
       )}
+      {recorder}
       <input ref={picker} type="file" accept={isVideo ? "video/mp4,.mp4" : "image/png,image/jpeg"} disabled={disabled}
         aria-label={`Choose ${name.toLowerCase()}`} className="hidden"
         onChange={event => {
@@ -104,12 +106,13 @@ export default function MeeshoClaims() {
   const [claims, setClaims] = useState<ClaimDraft[]>([]), [draft, setDraft] = useState<ClaimDraft | null>(null);
   const [files, setFiles] = useState(new Map<string, File>()), [dirty, setDirty] = useState(false), [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false), [processing, setProcessing] = useState(false), [scanning, setScanning] = useState(false), [agreed, setAgreed] = useState(false);
+  const [phoneBusy, setPhoneBusy] = useState(false);
   const labelScanner = useRef<ClaimLabelScannerHandle>(null);
   const [error, setError] = useState(""), [notice, setNotice] = useState(""), [connection, setConnection] = useState("");
   const [evidenceError, setEvidenceError] = useState("");
   const [progress, setProgress] = useState<{ percent: number; message: string } | null>(null), [operation, setOperation] = useState("");
   useEffect(() => { let alive = true; listClaims().then(saved => { if (alive) { setClaims(saved); setDraft(saved[0] || emptyClaim()); setLoaded(true); } }).catch(e => { if (alive) { setError(e.message); setLoaded(true); } }); return () => { alive = false; }; }, []);
-  const locked = busy || processing || scanning, submitted = draft?.status === "submitted";
+  const locked = busy || processing || scanning || phoneBusy, submitted = draft?.status === "submitted";
   const detailProblems = draft ? claimProblems(draft, false) : [];
   const missingEvidence = draft ? REQUIRED_EVIDENCE.filter(role => !draft.evidence.some(file => file.role === role)) : [];
   const ready = !detailProblems.length && !missingEvidence.length;
@@ -129,9 +132,35 @@ export default function MeeshoClaims() {
     setDraft(next); setFiles(new Map()); setDirty(false); setAgreed(false); setError(""); setEvidenceError(""); setNotice(""); setProgress(null); setOperation(next.operationId || "");
   };
   const chooseEvidence = async (file: File, role: EvidenceRole) => {
-    setProcessing(true); setEvidenceError("");
-    try { const entry = await describeEvidence(file, role); const previousId = draft?.evidence.find(item => item.role === role)?.id; setFiles(current => { const next = new Map(current); if (previousId) next.delete(previousId); next.set(entry.id, file); return next; }); setDraft(current => current ? { ...current, evidence: [...current.evidence.filter(item => item.role !== role), entry], status: "draft", operationId: undefined } : current); setDirty(true); setAgreed(false); setProgress(null); setOperation(""); }
-    catch (e) { setEvidenceError(`${EVIDENCE_LABELS[role]} · ${(e as Error).message}`); } finally { setProcessing(false); }
+    if (!draft) return false;
+    setProcessing(true);
+    setEvidenceError("");
+    try {
+      const entry = await describeEvidence(file, role);
+      const previousId = draft.evidence.find(item => item.role === role)?.id;
+      setFiles(current => {
+        const next = new Map(current);
+        if (previousId) next.delete(previousId);
+        next.set(entry.id, file);
+        return next;
+      });
+      setDraft(current => current ? {
+        ...current,
+        evidence: [...current.evidence.filter(item => item.role !== role), entry],
+        status: "draft",
+        operationId: undefined,
+      } : current);
+      setDirty(true);
+      setAgreed(false);
+      setProgress(null);
+      setOperation("");
+      return true;
+    } catch (error) {
+      setEvidenceError(`${EVIDENCE_LABELS[role]} · ${(error as Error).message}`);
+      return false;
+    } finally {
+      setProcessing(false);
+    }
   };
   const removeEvidence = (role: EvidenceRole) => {
     setEvidenceError("");
@@ -339,15 +368,22 @@ export default function MeeshoClaims() {
                   {processing ? "Adding file…" : `${REQUIRED_EVIDENCE.length - missingEvidence.length}/${REQUIRED_EVIDENCE.length} required added`}
                 </span>
               </div>
-              <MeeshoRecordingGuide />
-              {evidenceError && <p role="alert" className="mb-3 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-800">{evidenceError}</p>}
-              <div className="grid gap-3 sm:grid-cols-2">
-                {EVIDENCE_ROLES.map(role => {
-                  const entry = draft.evidence.find(file => file.role === role);
-                  return <EvidenceCard key={role} role={role} entry={entry} file={entry && files.get(entry.id)} disabled={locked || submitted}
-                    onChoose={file => void chooseEvidence(file, role)} onRemove={() => removeEvidence(role)} />;
-                })}
-              </div>
+              <ClaimPhoneCamera available={!submitted} disabled={busy || processing || scanning}
+                onBusyChange={setPhoneBusy} onUse={chooseEvidence}>
+                {(connection, cameraButton) => <>
+                  {connection}
+                  <MeeshoRecordingGuide />
+                  {evidenceError && <p role="alert" className="mb-3 rounded-lg bg-rose-50 px-3 py-2.5 text-sm text-rose-800">{evidenceError}</p>}
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {EVIDENCE_ROLES.map(role => {
+                      const entry = draft.evidence.find(file => file.role === role);
+                      return <EvidenceCard key={role} role={role} entry={entry} file={entry && files.get(entry.id)} disabled={locked || submitted}
+                        onChoose={file => void chooseEvidence(file, role)} onRemove={() => removeEvidence(role)}
+                        recorder={cameraButton(role)} />;
+                    })}
+                  </div>
+                </>}
+              </ClaimPhoneCamera>
               <p className="mt-4 flex items-start gap-2 text-xs leading-5 text-slate-600">
                 <HardDrive size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
                 Files stay in this browser until you send them to Meesho. Clearing site data removes saved evidence.
