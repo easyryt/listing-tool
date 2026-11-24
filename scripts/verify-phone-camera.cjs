@@ -5,7 +5,13 @@ const { networkInterfaces } = require('node:os');
 const { readFileSync } = require('node:fs');
 const { execFileSync } = require('node:child_process');
 const scanner = require('zxing-wasm/reader');
-const { createCameraBridge, sameSubnet } = require('./phone-camera-bridge.cjs');
+const { createCameraBridge, desktopOrigins, sameSubnet } = require('./phone-camera-bridge.cjs');
+
+test('the production Vercel app and explicitly configured origins can use the laptop bridge', () => {
+  assert.equal(desktopOrigins().has('https://listing-tool-three.vercel.app'), true);
+  assert.equal(desktopOrigins('https://claims.example.test,not a URL').has('https://claims.example.test'), true);
+  assert.equal(desktopOrigins('not a URL').has('not a URL'), false);
+});
 
 test('only a matching private subnet can use the phone endpoint', () => {
   assert.equal(sameSubnet('192.168.10.22', '192.168.10.5', '255.255.255.0'), true);
@@ -28,7 +34,7 @@ test('one QR lets the laptop and phone record, review and trim takes', { skip: !
   try {
     const [localPort, phonePort] = await Promise.all([listen(bridge.desktopServer, '127.0.0.1'), listen(bridge.phoneServer, network.address)]);
     const localBase = `http://127.0.0.1:${localPort}`;
-    const origin = { Origin: 'http://localhost:3000' };
+    const origin = { Origin: 'https://listing-tool-three.vercel.app' };
     assert.equal((await fetch(`${localBase}/session`, { method: 'POST', headers: { Origin: 'https://example.com' } })).status, 403);
     const created = await fetch(`${localBase}/session`, { method: 'POST', headers: origin });
     assert.equal(created.status, 201);

@@ -143,7 +143,7 @@ export default function ClaimPhoneCamera({ available, disabled, onBusyChange, on
       setStatus({ phase: "waiting" });
     } catch (reason) {
       setError(reason instanceof TypeError || (reason as Error).name === "TimeoutError"
-        ? "Start npm run phone-camera on the laptop and open the claims page at localhost:3000."
+        ? "Start npm run phone-camera on this laptop, then retry. The claims page may be open locally or on Vercel."
         : (reason as Error).message);
     } finally { setActing(false); }
   };

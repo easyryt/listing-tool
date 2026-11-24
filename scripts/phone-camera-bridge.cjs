@@ -18,14 +18,26 @@ const DESKTOP_PORT = 3222;
 // Keep this separate from the laptop-only control port. Some Windows network
 // stacks reserve 3221 even when no visible process owns it.
 const PHONE_PORT = 3223;
-const DESKTOP_ORIGINS = new Set([
+const DEFAULT_DESKTOP_ORIGINS = [
   'http://localhost:3000', 'http://127.0.0.1:3000',
   'http://localhost:3001', 'http://127.0.0.1:3001',
-]);
+  'https://listing-tool-three.vercel.app',
+];
 const newSecret = () => randomBytes(24).toString('base64url');
 const validSecret = /^[\w-]{32}$/;
 const privateIP = /^(?:10\.|192\.168\.|172\.(?:1[6-9]|2[0-9]|3[01])\.)/;
 const torchActions = new Set(['torch-on', 'torch-off']);
+
+function desktopOrigins(value = process.env.PHONE_CAMERA_ALLOWED_ORIGINS || '') {
+  const origins = new Set(DEFAULT_DESKTOP_ORIGINS);
+  for (const candidate of value.split(',')) {
+    try {
+      const origin = new URL(candidate.trim()).origin;
+      if (origin.startsWith('http://') || origin.startsWith('https://')) origins.add(origin);
+    } catch { /* Ignore malformed entries instead of widening local bridge access. */ }
+  }
+  return origins;
+}
 
 function localInterfaces() {
   return Object.entries(networkInterfaces()).flatMap(([name, interfaces]) =>
@@ -127,7 +139,7 @@ async function trimRecording(response, take, params) {
   }
 }
 
-function createCameraBridge({ interfaces = localInterfaces, now = Date.now } = {}) {
+function createCameraBridge({ interfaces = localInterfaces, now = Date.now, origins = desktopOrigins() } = {}) {
   let session;
 
   function resetTake(target) {
@@ -192,7 +204,7 @@ function createCameraBridge({ interfaces = localInterfaces, now = Date.now } = {
 
   async function desktop(request, response) {
     const origin = request.headers.origin;
-    if (!DESKTOP_ORIGINS.has(origin)) throw problem(403, 'Open the claims tool on this laptop.');
+    if (!origins.has(origin)) throw problem(403, 'Open the claims tool on this laptop.');
     response.setHeader('Access-Control-Allow-Origin', origin);
     response.setHeader('Vary', 'Origin');
     if (request.method === 'OPTIONS') {
@@ -373,4 +385,4 @@ if (require.main === module) {
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, stop);
 }
 
-module.exports = { createCameraBridge, sameSubnet };
+module.exports = { createCameraBridge, desktopOrigins, sameSubnet };
