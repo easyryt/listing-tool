@@ -9,6 +9,7 @@ import ClaimPhoneTakeReview, { cameraPrimary as primary, cameraSecondary as seco
 
 const bridge = "http://127.0.0.1:3222";
 const pairingKey = "meesho.phone-camera.pairing.v1";
+type LocalBridgeRequestInit = RequestInit & { targetAddressSpace?: "loopback" };
 
 type Pairing = { id: string; controller: string; codes: { name: string; address: string; qr: string }[] };
 type Phase = "waiting" | "connecting" | "ready" | "starting" | "recording" | "stopping" | "photographing" | "transferring" | "received" | "error";
@@ -47,7 +48,10 @@ async function request(path: string, method = "GET", pairing?: Pairing, take?: s
   const response = await fetch(bridge + path, {
     method, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(path.includes("/trim?") ? 130_000 : /\/(video|image)$/.test(path) ? 60_000 : 8000),
     headers: pairing ? { Authorization: `Bearer ${pairing.controller}`, ...(take ? { "X-Camera-Take": take } : {}) } : undefined,
-  });
+    // Chrome requires this explicit request before a public HTTPS page (Vercel)
+    // can access the trusted companion service on the same laptop.
+    targetAddressSpace: "loopback",
+  } as LocalBridgeRequestInit);
   if (!response.ok) throw Object.assign(new Error((await response.json()).message), { status: response.status });
   return response;
 }
@@ -68,6 +72,7 @@ export default function ClaimPhoneCamera({ available, disabled, onBusyChange, on
   const [attachedTake, setAttachedTake] = useState("");
   const [acting, setActing] = useState(false);
   const [changingTorch, setChangingTorch] = useState(false);
+  const [replaceSession, setReplaceSession] = useState(false);
   const [error, setError] = useState("");
 
   const phase = status?.phase;
@@ -130,21 +135,29 @@ export default function ClaimPhoneCamera({ available, disabled, onBusyChange, on
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [pairing]);
 
-  const connect = async () => {
+  const connect = async (replace = false) => {
     setOpen(true);
     setActing(true);
     setError("");
     setStatus(null);
+    setReplaceSession(false);
     try {
+      if (replace) await request("/session/reset", "POST");
       const next: Pairing = await (await request("/session", "POST")).json();
       remember(next);
       setPairing(next);
       setAddressIndex(0);
       setStatus({ phase: "waiting" });
     } catch (reason) {
-      setError(reason instanceof TypeError || (reason as Error).name === "TimeoutError"
-        ? "Start npm run phone-camera on this laptop, then retry. The claims page may be open locally or on Vercel."
-        : (reason as Error).message);
+      const status = (reason as { status?: number }).status;
+      if (status === 409 && !replace) {
+        setError("An earlier idle phone pairing is still open. Start a new session to replace it.");
+        setReplaceSession(true);
+      } else {
+        setError(reason instanceof TypeError || (reason as Error).name === "TimeoutError"
+          ? "Allow Chrome's Loopback network prompt for this site, then retry. Also keep npm run phone-camera running on this laptop."
+          : (reason as Error).message);
+      }
     } finally { setActing(false); }
   };
 
@@ -157,6 +170,7 @@ export default function ClaimPhoneCamera({ available, disabled, onBusyChange, on
     setCapture(null);
     setOpen(false);
     setTarget("video");
+    setReplaceSession(false);
     setActing(false);
   };
 
@@ -274,7 +288,9 @@ export default function ClaimPhoneCamera({ available, disabled, onBusyChange, on
       {(phase === "ready" || phase === "recording") && typeof status?.torch === "boolean" && <button type="button"
         className={status.torch ? primary : secondary} aria-pressed={status.torch} disabled={disabled || acting || changingTorch}
         onClick={() => void toggleTorch()}><Flashlight size={18} aria-hidden="true" /> Flashlight</button>}
-      {!pairing && !acting && <button type="button" className={primary} disabled={disabled} onClick={() => void connect()}>Show pairing QR</button>}
+      {!pairing && !acting && <button type="button" className={primary} disabled={disabled} onClick={() => void connect(replaceSession)}>
+        {replaceSession ? "Start a new session" : "Show pairing QR"}
+      </button>}
     </div>}
     {!capture && pairing && !working && phase !== "received" && <button type="button" disabled={acting || disabled} className="min-h-10 rounded-lg px-3 text-sm text-slate-300 hover:bg-white/10 hover:text-white disabled:opacity-50"
       onClick={() => void disconnect()}>{phase === "waiting" ? "Cancel pairing" : "Disconnect phone"}</button>}

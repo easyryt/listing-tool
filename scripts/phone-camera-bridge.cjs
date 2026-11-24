@@ -214,6 +214,13 @@ function createCameraBridge({ interfaces = localInterfaces, now = Date.now, orig
     }
     const { method } = request;
     const url = new URL(request.url, 'http://localhost');
+    if (method === 'POST' && url.pathname === '/session/reset') {
+      if (session && !['waiting', 'connecting', 'ready'].includes(session.phase)) {
+        throw problem(409, 'Finish or review the current capture before starting a new phone session.');
+      }
+      discard(session);
+      return reply(response, 200, {});
+    }
     if (method === 'POST' && url.pathname === '/session') {
       if (session) throw problem(409, 'A phone camera session is open. Use the tab that paired it or disconnect from the phone.');
       const addresses = interfaces();

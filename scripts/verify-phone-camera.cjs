@@ -36,6 +36,9 @@ test('one QR lets the laptop and phone record, review and trim takes', { skip: !
     const localBase = `http://127.0.0.1:${localPort}`;
     const origin = { Origin: 'https://listing-tool-three.vercel.app' };
     assert.equal((await fetch(`${localBase}/session`, { method: 'POST', headers: { Origin: 'https://example.com' } })).status, 403);
+    assert.equal((await fetch(`${localBase}/session`, { method: 'POST', headers: origin })).status, 201);
+    assert.equal((await fetch(`${localBase}/session`, { method: 'POST', headers: origin })).status, 409);
+    assert.equal((await fetch(`${localBase}/session/reset`, { method: 'POST', headers: origin })).status, 200);
     const created = await fetch(`${localBase}/session`, { method: 'POST', headers: origin });
     assert.equal(created.status, 201);
     const { id, controller, codes } = await created.json();
@@ -82,6 +85,7 @@ test('one QR lets the laptop and phone record, review and trim takes', { skip: !
     const first = (await assertPhase(desktop('/start', 'POST'), 'starting')).take;
     assert.equal((await assertPhase(handset(), 'starting')).take, first);
     await assertPhase(handset('/recording', first), 'recording');
+    assert.equal((await fetch(`${localBase}/session/reset`, { method: 'POST', headers: origin })).status, 409);
     assert.equal((await assertPhase(desktop('/torch-on', 'POST'), 'recording')).torch, true);
     assert.equal((await assertPhase(handset(), 'recording')).torch, true);
     assert.equal((await handset('/video', first, Buffer.from('unused'))).status, 409);
