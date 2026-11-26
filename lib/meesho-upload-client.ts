@@ -1,6 +1,6 @@
 "use client";
 
-import { isMeeshoPanel, matchingMeeshoReceipt, meeshoTargetKey, validMeeshoTarget, MEESHO_PANEL, type MeeshoReceipt, type MeeshoTarget } from "./meesho-upload-contract";
+import { isMeeshoPanel, matchingMeeshoReceipt, meeshoTargetKey, validMeeshoTarget, type MeeshoReceipt, type MeeshoTarget } from "./meesho-upload-contract";
 import { validateProductImageFiles, type ProductImageSelection, type ProductImageSetJob, type ProductImageValues } from "./meesho-image-set";
 
 export type MeeshoUpload = {
@@ -11,7 +11,7 @@ export type MeeshoUpload = {
 };
 type Job = { id: string; phase: string; error?: string; staged?: boolean; uploadAttempted?: boolean; record?: MeeshoReceipt };
 type StagedImage = { id: string; filename: string; originalName: string; token: string; sha256: string; target: MeeshoTarget; type: string; bytes: number; mode?: "browser" };
-type Reply = { ok: boolean; requestId?: string; id?: string; version?: string; listingUpload?: boolean; singleTabUploads?: boolean; browserStaging?: boolean; downloadFreeUploads?: boolean; staged?: StagedImage; job?: Job; error?: string };
+type Reply = { ok: boolean; requestId?: string; id?: string; version?: string; listingUpload?: boolean; singleTabUploads?: boolean; sellerAccountDetection?: boolean; browserStaging?: boolean; downloadFreeUploads?: boolean; sourceUrl?: string; staged?: StagedImage; job?: Job; error?: string };
 const uploads = new Map<string, MeeshoUpload>(), listeners = new Set<() => void>();
 const calls = new Map<string, { resolve: (r: Reply) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout>; replies?: Reply[] }>();
 let listening = false, restored = false, chain: Promise<unknown> = Promise.resolve();
@@ -35,7 +35,7 @@ export function getMeeshoUpload(target: MeeshoTarget) { return uploads.get(meesh
 export function getMeeshoUploadRevision() { return revision; }
 function request(type: string, data: object = {}, timeout = 12000): Promise<Reply> {
   initialize(); const requestId = crypto.randomUUID(); return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => { calls.delete(requestId); reject(new Error("The extension has not replied. Reload Browser AI Test 0.10.0, allow this listing site, refresh this page, then check the saved upload.")); }, timeout);
+    const timer = setTimeout(() => { calls.delete(requestId); reject(new Error("The extension has not replied. Reload Browser AI Test 0.12.0, allow this listing site, then refresh this page.")); }, timeout);
     calls.set(requestId, { resolve, reject, timer }); document.dispatchEvent(new CustomEvent("listing-meesho-request", { detail: JSON.stringify({ requestId, type, ...data }) }));
   });
 }
@@ -48,14 +48,27 @@ async function connectedExtension(requireSingleTab = false) {
     document.dispatchEvent(new CustomEvent("listing-meesho-request", { detail: JSON.stringify({ requestId, type: "listing-meesho-hello" }) }));
   });
   const copies = [...new Map(replies.filter(r => /^[a-p]{32}$/.test(r.id || "")).map(r => [r.id, r])).values()];
-  if (copies.length !== 1 || !copies[0].listingUpload) throw new Error(copies.length > 1 ? "Keep one Browser AI Test extension enabled, then refresh. Multiple copies could upload duplicates." : `Connect Browser AI Test 0.10.0 and allow access to ${location.origin}, then refresh. No image has uploaded.`);
+  if (copies.length !== 1 || !copies[0].listingUpload) throw new Error(copies.length > 1 ? "Keep one Browser AI Test extension enabled, then refresh. Multiple copies could upload duplicates." : `Connect Browser AI Test 0.12.0 and allow access to ${location.origin}, then refresh. No image has uploaded.`);
   if (requireSingleTab && !copies[0].singleTabUploads) throw new Error("Reload Browser AI Test to 0.10.0, then refresh the listing page to use one Meesho tab for bulk uploads. No image has uploaded.");
   if (!copies[0].downloadFreeUploads || !copies[0].browserStaging) throw new Error("Upload without a downloaded copy requires Browser AI Test 0.10.0. Reload the extension and refresh this page. No image has uploaded or downloaded.");
+  if (!copies[0].sellerAccountDetection) throw new Error("Seller account selection requires Browser AI Test 0.12.0. Update the extension and refresh this page.");
   return copies[0];
 }
 export async function checkMeeshoExtension(requireSingleTab = false) { return (await connectedExtension(requireSingleTab)).version; }
-export function savedMeeshoPanel() { try { const value = localStorage.getItem("listing-meesho-panel") || MEESHO_PANEL; return isMeeshoPanel(value) ? value : MEESHO_PANEL; } catch { return MEESHO_PANEL; } }
-export function saveMeeshoPanel(value: string) { if (!isMeeshoPanel(value)) throw new Error("Use the address of Meesho’s Image Bulk Upload page."); localStorage.setItem("listing-meesho-panel", value); }
+export function savedMeeshoPanel() { try { const value = localStorage.getItem("listing-meesho-panel") || ""; return isMeeshoPanel(value) ? new URL(value).href : ""; } catch { return ""; } }
+export function saveMeeshoPanel(value: string) {
+  if (!value) { localStorage.removeItem("listing-meesho-panel"); return; }
+  if (!isMeeshoPanel(value)) throw new Error("Use the address of your Meesho Image Bulk Upload page.");
+  localStorage.setItem("listing-meesho-panel", new URL(value).href);
+}
+function selectMeeshoDestination() {
+  const configured = savedMeeshoPanel();
+  let detected: Promise<string> | undefined;
+  return () => configured ? Promise.resolve(configured) : detected ??= request("listing-meesho-account").then(reply => {
+    if (!reply.sourceUrl || !isMeeshoPanel(reply.sourceUrl)) throw new Error("Open your seller’s Image Bulk Upload page in Chrome and try again.");
+    return reply.sourceUrl;
+  });
+}
 function jobProgress(current: MeeshoUpload, job: Job) {
   if (current.phase === "applied") return;
   const milestones: Record<string, [number, string]> = { "opening-meesho": [25, "Opening Meesho…"], "uploading-image": [40, "Supplying this image to Meesho…"], "finding-file": [65, "Waiting for Meesho to confirm this image’s link…"], "saving-local": [85, "Image verified. Saving its link…"], "copying-link": [90, "Copying the verified image link…"] };
@@ -80,16 +93,19 @@ async function follow(current: MeeshoUpload, action: () => Promise<Reply>) {
 }
 function queue(action: () => Promise<void>) { chain = chain.catch(() => {}).then(action); return chain; }
 export function startMeeshoUpload(file: File, target: MeeshoTarget, initialValue: string, singleTab = false) {
+  return queueMeeshoUpload(file, target, initialValue, selectMeeshoDestination(), singleTab);
+}
+function queueMeeshoUpload(file: File, target: MeeshoTarget, initialValue: string, destination: () => Promise<string>, singleTab: boolean) {
   initialize(); const previous = getMeeshoUpload(target);
   if (previous && ["queued", "running"].includes(previous.phase)) return Promise.resolve();
   if (!["image/png", "image/jpeg"].includes(file.type) || !file.size || file.size > 4194304) throw new Error("Choose one PNG or JPG up to 4 MB.");
   if (!validMeeshoTarget(target)) throw new Error("Invalid product image destination.");
-  const sourceUrl = savedMeeshoPanel();
   const current: MeeshoUpload = { id: crypto.randomUUID(), target, initialValue, originalName: file.name, filename: "", sha256: "", progress: 0, phase: "queued", message: "Queued — each image uploads separately." };
   put(current);
   return queue(async () => {
     try {
       await connectedExtension(singleTab);
+      const sourceUrl = await destination();
       put({ ...current, ...getMeeshoUpload(target), phase: "running", progress: 10, message: "Preparing this selected image…" });
       const bytes = await file.arrayBuffer(), digest = await crypto.subtle.digest("SHA-256", bytes);
       const sha256 = Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2,"0")).join("");
@@ -107,8 +123,9 @@ export function startMeeshoUpload(file: File, target: MeeshoTarget, initialValue
 }
 export function resumeMeeshoUpload(target: MeeshoTarget) {
   const current = getMeeshoUpload(target); if (!current) return Promise.resolve();
+  const sourceUrl = savedMeeshoPanel();
   put({ ...current, phase: "queued", message: "Queued to check the original upload…" });
-  return queue(async () => { try { await checkMeeshoExtension(); await follow(current, () => request("listing-meesho-resume", { jobId: current.id }, 150000)); } catch (error) { put({ ...current, phase: "error", message: error instanceof Error ? error.message : "Could not reconnect." }); } });
+  return queue(async () => { try { await checkMeeshoExtension(); await follow(current, () => request("listing-meesho-resume", { jobId: current.id, sourceUrl }, 150000)); } catch (error) { put({ ...current, phase: "error", message: error instanceof Error ? error.message : "Could not reconnect." }); } });
 }
 export function markMeeshoApplied(target: MeeshoTarget, id: string) { const j = getMeeshoUpload(target); if (j?.id === id && j.receipt) put({ ...j, phase: "applied", progress: 100, message: "100% · Uploaded and linked to this image." }); }
 export function invalidateMeeshoSelection(target: MeeshoTarget) { const j = getMeeshoUpload(target); if (j && j.phase !== "applied") put({ ...j, superseded: true }); }
@@ -123,9 +140,10 @@ export function startMeeshoImageSet(rowId: string, selections: readonly ProductI
     if (existing && ["queued", "running", "ready"].includes(existing.phase)) throw new Error(`Image ${selection.field.slice(-1)} already has a pending upload. Finish or resolve it first. No new images were queued.`);
   }
   const jobs: ProductImageSetJob[] = [], promises: Promise<unknown>[] = [];
+  const destination = selectMeeshoDestination();
   for (const selection of selections) {
     const target = { rowId, field: selection.field };
-    promises.push(startMeeshoUpload(selection.file, target, values[selection.field], true));
+    promises.push(queueMeeshoUpload(selection.file, target, values[selection.field], destination, true));
     jobs.push({ id: getMeeshoUpload(target)!.id, field: selection.field, name: selection.file.name });
   }
   return { jobs, finished: Promise.all(promises).then(() => {}) };
@@ -135,6 +153,7 @@ export function startMeeshoImageBatch(selections: readonly {file:File;target:Mee
   const used=new Set<string>();
   for(const s of selections){const key=meeshoTargetKey(s.target);if(!validMeeshoTarget(s.target)||used.has(key))throw new Error("Each variant image needs a valid, unique destination.");used.add(key);const old=getMeeshoUpload(s.target);if(old&&["queued","running","ready"].includes(old.phase))throw new Error("A selected variant already has a pending image upload. No new images were queued.");}
   const jobs: {id:string;target:MeeshoTarget;name:string}[]=[],promises:Promise<unknown>[]=[];
-  for(const s of selections){promises.push(startMeeshoUpload(s.file,s.target,s.initialValue,true));jobs.push({id:getMeeshoUpload(s.target)!.id,target:s.target,name:s.file.name});}
+  const destination=selectMeeshoDestination();
+  for(const s of selections){promises.push(queueMeeshoUpload(s.file,s.target,s.initialValue,destination,true));jobs.push({id:getMeeshoUpload(s.target)!.id,target:s.target,name:s.file.name});}
   return {jobs,finished:Promise.all(promises).then(()=>{})};
 }

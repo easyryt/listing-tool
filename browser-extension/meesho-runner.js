@@ -6,7 +6,7 @@
     async write(job){job.updatedAt=new Date(this.now()).toISOString();const s=await this.state();s.jobs[job.id]={...job};const done=Object.values(s.jobs).filter(j=>j.phase==='complete').sort((a,b)=>a.updatedAt.localeCompare(b.updatedAt));while(Object.keys(s.jobs).length>30&&done.length)delete s.jobs[done.shift().id];await this.chrome.storage.local.set({[this.jobsKey]:s.jobs});}
     async get(id){return(await this.state()).jobs[id]||null;}
     async list(){return(await this.state()).records;}
-    async check(job){const tab=await this.chrome.tabs.get(job.tabId);if(!globalThis.BrowserTestMeesho.isUpload(tab.url)||tab.url!==job.sourceUrl)throw new Error('Keep the test tab on its original Meesho Image Bulk Upload page.');return tab;}
+    async check(job){const tab=await this.chrome.tabs.get(job.tabId);if(!globalThis.BrowserTestMeesho.isUpload(tab.url)||tab.url!==job.sourceUrl||(tab.pendingUrl&&tab.pendingUrl!==job.sourceUrl))throw new Error('Keep the tab on its original Meesho Image Bulk Upload page.');return tab;}
     async script(job,func,args=[]){await this.check(job);return(await this.chrome.scripting.executeScript({target:{tabId:job.tabId},func,args}))[0]?.result;}
     async open(job){
       let saved=(await this.chrome.storage.local.get(this.tabKey))[this.tabKey];let tab,resetMarker='';
@@ -22,23 +22,23 @@
       }else{tab=await this.chrome.tabs.create({url:job.sourceUrl,active:true});job.tabId=tab.id;await this.write(job);}
       await this.chrome.storage.local.set({[this.tabKey]:{tabId:job.tabId,sourceUrl:job.sourceUrl,jobId:job.id}});
       const started=this.now();while(this.now()-started<30000){const t=await this.chrome.tabs.get(job.tabId);if(t.status==='complete'){
-        if(!globalThis.BrowserTestMeesho.isUpload(t.url)||t.url!==job.sourceUrl)throw new Error('Sign in to Meesho in Chrome, then retry the saved image.');
+        if(!globalThis.BrowserTestMeesho.isUpload(t.url)||t.url!==job.sourceUrl)throw new Error('Sign in to the correct Meesho seller account, open its Image Bulk Upload page, then retry the saved image.');
         if(await this.script(job,function meeshoReady(marker){return!!document.querySelector('input#imageBulkUploadGetFile[type="file"]')&&(!marker||document.documentElement.getAttribute('data-listing-meesho-reset')!==marker);},[resetMarker]))return;
       }await this.delay(400);}throw new Error('Meesho’s upload page did not become ready.');
     }
     async send(job,file,code){job.phase='uploading-image';delete job.error;await this.write(job);
-      const result=await this.upload({tabId:job.tabId,jobId:job.id,file,code,afterStaging:async()=>{job.staged=true;await this.write(job);},beforeDispatch:async()=>{job.uploadAttempted=true;await this.write(job);}});
+      const result=await this.upload({tabId:job.tabId,sourceUrl:job.sourceUrl,jobId:job.id,file,code,afterStaging:async()=>{job.staged=true;await this.write(job);},beforeDispatch:async()=>{await this.check(job);job.uploadAttempted=true;await this.write(job);}});
       if(!result?.dispatched)throw new Error('Chrome did not confirm supplying the selected image.');
     }
     async find(job){
       await this.check(job);await this.chrome.scripting.executeScript({target:{tabId:job.tabId},files:['meesho-core.js']});
       const started=this.now();
       while(this.now()-started<90000){
-        const found=await this.script(job,function meeshoFind(name){return globalThis.BrowserTestMeesho.findUploadedFile(document,name);},[job.remoteName]);
+        const found=await this.script(job,function meeshoFind(name,expectedUrl){if(location.href!==expectedUrl)throw new Error('The Meesho seller page changed.');return globalThis.BrowserTestMeesho.findUploadedFile(document,name);},[job.remoteName,job.sourceUrl]);
         if(found&&globalThis.BrowserTestMeesho.imageLink(found.url))return found;
         if(!job.linkRequested){
           const ready=await this.script(job,function meeshoSelected(name){const input=document.querySelector('#imageBulkUploadGetFile');const button=[...document.querySelectorAll('button')].find(e=>e.getClientRects().length&&e.innerText.trim()==='Get Image Link');return input?.files?.length===1&&input.files[0].name===name&&!!button&&!button.disabled;},[job.remoteName]);
-          if(ready){job.linkRequested=true;await this.write(job);await this.script(job,function meeshoGenerate(){const button=[...document.querySelectorAll('button')].find(e=>e.getClientRects().length&&e.innerText.trim()==='Get Image Link');if(!button||button.disabled)throw new Error('Meesho’s Get Image Link button is unavailable.');button.click();return true;});}
+          if(ready){job.linkRequested=true;await this.write(job);await this.script(job,function meeshoGenerate(expectedUrl){if(location.href!==expectedUrl)throw new Error('The Meesho seller page changed.');const button=[...document.querySelectorAll('button')].find(e=>e.getClientRects().length&&e.innerText.trim()==='Get Image Link');if(!button||button.disabled)throw new Error('Meesho’s Get Image Link button is unavailable.');button.click();return true;},[job.sourceUrl]);}
         }
         const error=await this.script(job,function meeshoError(){return[...document.querySelectorAll('[role="alert"]')].filter(e=>e.getClientRects().length).map(e=>e.innerText.trim()).filter(Boolean).join(' ').slice(0,400);});
         if(error)throw new Error('Meesho reported: '+error);
@@ -66,10 +66,13 @@
         job={id:input.jobId,phase:'opening-meesho',sourceUrl:input.sourceUrl,callerTabId,originalName:String(input.file.name||'image').replace(/[\x00-\x1f]/g,'').slice(0,150),remoteName:input.listing?.filename||globalThis.BrowserTestMeesho.uniqueName(input.file.type,new Date(this.now()).toISOString(),input.jobId),mime:input.file.type,uploadAttempted:false,linkRequested:false,...(input.listing?{listing:input.listing,staged:true}:{})};await this.write(job);await this.open(job);const code=input.listing||input.mirrorCode;await this.send(job,{...input.file,name:job.remoteName},code);return await this.finish(job,code);
       }catch(error){if(job){job.phase=job.uploadAttempted?'needs-resume':'failed-before-upload';job.error=error.message;await this.write(job);}throw error;}finally{this.active=null;}
     }
-    async resume(id,callerTabId,code){if(this.active)throw new Error('An upload is already running.');this.active=id;let job;
+    async resume(id,callerTabId,code,selectPage){if(this.active)throw new Error('An upload is already running.');this.active=id;let job;
       try{job=await this.get(id);if(!job)throw new Error('No saved Meesho operation exists.');if(job.phase==='complete')return job;job.callerTabId=callerTabId;
         code=job.listing||code;
-        if(!job.uploadAttempted){await this.open(job);await this.send(job,{name:job.remoteName,type:job.mime},code);}else{try{await this.check(job);}catch{throw new Error('The original Meesho test tab is unavailable. Upload status is uncertain; automatic re-upload is blocked.');}}
+        if(!job.uploadAttempted){
+          if(selectPage){const sourceUrl=await selectPage();if(sourceUrl!==job.sourceUrl){job.sourceUrl=sourceUrl;delete job.tabId;await this.write(job);}}
+          await this.open(job);await this.send(job,{name:job.remoteName,type:job.mime},code);
+        }else{try{await this.check(job);}catch{throw new Error('The original Meesho seller tab is unavailable. Upload status is uncertain; automatic re-upload is blocked.');}}
         return await this.finish(job,code);
       }catch(error){if(job){job.phase=job.uploadAttempted?'needs-resume':'failed-before-upload';job.error=error.message;await this.write(job);}throw error;}finally{this.active=null;}
     }

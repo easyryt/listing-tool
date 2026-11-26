@@ -67,7 +67,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if(sender.id===chrome.runtime.id&&listingOrigin&&(!sender.frameId||sender.frameId===0)&&message?.type?.startsWith('listing-meesho-')){
     (async()=>{
       const L=globalThis.BrowserTestListing;
-      if(message.type==='listing-meesho-hello')return{ok:true,id:chrome.runtime.id,version:chrome.runtime.getManifest().version,listingUpload:true,singleTabUploads:true,browserStaging:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript,downloadFreeUploads:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript};
+      if(message.type==='listing-meesho-hello')return{ok:true,id:chrome.runtime.id,version:chrome.runtime.getManifest().version,listingUpload:true,singleTabUploads:true,sellerAccountDetection:true,browserStaging:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript,downloadFreeUploads:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript};
+      if(message.type==='listing-meesho-account')return{ok:true,sourceUrl:await globalThis.BrowserTestMeesho.resolveSellerPage(chrome)};
       if(message.type==='listing-meesho-prepare'){
         if(!chrome.storage?.session?.set||!chrome.scripting?.executeScript)throw new Error('Reload Browser AI Test 0.10.0 and refresh the listing page to upload without downloading a copy.');
         return{ok:true,staged:await exclusive(()=>listingBrowserStage.prepare(message,listingOrigin))};
@@ -79,7 +80,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       }
       const job=await listingRunner.get(message.jobId);if(!job||job.listing?.origin!==listingOrigin)throw new Error('No upload exists for this listing page.');
       if(message.type==='listing-meesho-status')return{ok:true,job:L.publicJob(job)};
-      if(message.type==='listing-meesho-resume')return{ok:true,job:L.publicJob(await exclusive(async()=>{const resumed=await listingRunner.resume(message.jobId,sender.tab.id);if(resumed.phase==='complete'&&resumed.listing?.mode==='browser')try{await listingBrowserStage.confirm(resumed.listing,resumed.id);}catch{}return resumed;}))};
+      if(message.type==='listing-meesho-resume')return{ok:true,job:L.publicJob(await exclusive(async()=>{const selectPage=message.sourceUrl===undefined?undefined:()=>globalThis.BrowserTestMeesho.resolveSellerPage(chrome,message.sourceUrl);const resumed=await listingRunner.resume(message.jobId,sender.tab.id,undefined,selectPage);if(resumed.phase==='complete'&&resumed.listing?.mode==='browser')try{await listingBrowserStage.confirm(resumed.listing,resumed.id);}catch{}return resumed;}))};
       throw new Error('Unsupported listing image operation.');
     })().then(respond).catch(error=>respond({ok:false,error:error.message}));return true;
   }

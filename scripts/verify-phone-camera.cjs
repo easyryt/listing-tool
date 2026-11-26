@@ -50,6 +50,7 @@ test('one QR lets the laptop and phone record, review and trim takes', { skip: !
     assert.equal(pairing.protocol, 'webcamera:');
     assert.equal(pairing.hostname, 'pair');
     assert.equal(pairing.searchParams.get('ip'), network.address);
+    assert.equal(pairing.searchParams.get('port'), String(phonePort));
     assert.equal(pairing.searchParams.get('id'), id);
     const scanToken = pairing.searchParams.get('code');
     const phoneBase = `http://${network.address}:${phonePort}/phone/${id}`;

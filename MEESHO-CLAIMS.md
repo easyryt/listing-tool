@@ -22,7 +22,7 @@ Run `npm run dev:phone` for the local claims app and camera bridge. Select **Con
 
 ## Extension setup
 
-Update the unpacked extension using this repository's `browser-extension` folder, or extract `public/listing-meesho-extension.zip` into the installed extension folder. Reload **Browser AI Test — Local Listing Assistant**, confirm version **0.11.1**, then refresh the listing page. Existing site permissions cover the supported listing origins and `supplier.meesho.com`; this feature adds no Chrome permissions. Keep one copy enabled. The active browser tool blocks protected extension settings, so installing/reloading requires the user.
+Update the unpacked extension using this repository's `browser-extension` folder, or extract `public/listing-meesho-extension.zip` into the installed extension folder. Reload **Browser AI Test — Local Listing Assistant**, confirm version **0.11.1 or newer**, then refresh the listing page. Existing site permissions cover the supported listing origins and `supplier.meesho.com`; this feature adds no Chrome permissions. Keep one copy enabled. The active browser tool blocks protected extension settings, so installing/reloading requires the user.
 
 Version 0.11.1 waits for Meesho's ticket fields after navigation. Meesho can reach the `/create` route while still showing its loading screen; missing fields during that interval are treated as loading until the existing timeout, without writing data to an incomplete form.
 

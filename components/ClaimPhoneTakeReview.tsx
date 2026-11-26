@@ -18,7 +18,7 @@ export default function ClaimPhoneTakeReview({ video, busy, canTrim, attached, o
   busy: boolean;
   canTrim: boolean;
   attached: boolean;
-  onTrim: (start: number, end: number) => Promise<Blob>;
+  onTrim?: (start: number, end: number) => Promise<Blob>;
   onFinish: (file?: File) => Promise<void>;
 }) {
   const player = useRef<HTMLVideoElement>(null);
@@ -41,6 +41,7 @@ export default function ClaimPhoneTakeReview({ video, busy, canTrim, attached, o
     player.current.currentTime = time;
   };
   const applyTrim = async () => {
+    if (!onTrim) return;
     setTrimming(true);
     setError("");
     try {

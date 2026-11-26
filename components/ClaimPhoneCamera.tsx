@@ -7,7 +7,8 @@ import ClaimCameraDialog from "./ClaimCameraDialog";
 import ClaimPhonePhotoReview from "./ClaimPhonePhotoReview";
 import ClaimPhoneTakeReview, { cameraPrimary as primary, cameraSecondary as secondary, type ReviewedVideo } from "./ClaimPhoneTakeReview";
 
-const bridge = "http://127.0.0.1:3222";
+const localControlPort = process.env.NEXT_PUBLIC_PHONE_CAMERA_CONTROL_PORT;
+const bridge = `http://127.0.0.1:${localControlPort || "3222"}`;
 const pairingKey = "meesho.phone-camera.pairing.v1";
 type LocalBridgeRequestInit = RequestInit & { targetAddressSpace?: "loopback" };
 
@@ -56,13 +57,15 @@ async function request(path: string, method = "GET", pairing?: Pairing, take?: s
   return response;
 }
 
-export default function ClaimPhoneCamera({ available, disabled, onBusyChange, onUse, children }: {
+export type ClaimPhoneCameraProps = {
   available: boolean;
   disabled: boolean;
   onBusyChange: (busy: boolean) => void;
   onUse: (file: File, role: EvidenceRole) => Promise<boolean>;
   children: (connection: ReactNode, cameraButton: (role: EvidenceRole) => ReactNode) => ReactNode;
-}) {
+};
+
+export default function ClaimPhoneCamera({ available, disabled, onBusyChange, onUse, children }: ClaimPhoneCameraProps) {
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<EvidenceRole>("video");
   const [pairing, setPairing] = useState<Pairing | null>(null);
@@ -155,7 +158,9 @@ export default function ClaimPhoneCamera({ available, disabled, onBusyChange, on
         setReplaceSession(true);
       } else {
         setError(reason instanceof TypeError || (reason as Error).name === "TimeoutError"
-          ? "Allow Chrome's Loopback network prompt for this site, then retry. Also keep npm run phone-camera running on this laptop."
+          ? localControlPort
+            ? "Allow Chrome's Local Network access if prompted, then retry. If it still fails, restart the local Claims server."
+            : "Allow Chrome's Loopback network prompt for this site, then retry. Also keep npm run phone-camera running on this laptop."
           : (reason as Error).message);
       }
     } finally { setActing(false); }

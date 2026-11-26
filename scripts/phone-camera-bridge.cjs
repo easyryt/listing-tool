@@ -18,10 +18,11 @@ const DESKTOP_PORT = 3222;
 // Keep this separate from the laptop-only control port. Some Windows network
 // stacks reserve 3221 even when no visible process owns it.
 const PHONE_PORT = 3223;
+const HOSTED_CLAIMS_ORIGIN = 'https://listing-tool-three.vercel.app';
 const DEFAULT_DESKTOP_ORIGINS = [
   'http://localhost:3000', 'http://127.0.0.1:3000',
   'http://localhost:3001', 'http://127.0.0.1:3001',
-  'https://listing-tool-three.vercel.app',
+  HOSTED_CLAIMS_ORIGIN,
 ];
 const newSecret = () => randomBytes(24).toString('base64url');
 const validSecret = /^[\w-]{32}$/;
@@ -229,7 +230,7 @@ function createCameraBridge({ interfaces = localInterfaces, now = Date.now, orig
       session = current;
       try {
         const codes = await Promise.all(addresses.map(async ({ name, address }) => {
-          const params = new URLSearchParams({ ip: address, port: String(PHONE_PORT), id: current.id, code: current.scan });
+          const params = new URLSearchParams({ ip: address, port: String(phoneServer.address().port), id: current.id, code: current.scan });
           const qr = await QRCode.toDataURL(`webcamera://pair?${params}`, { width: 256, margin: 3 });
           return { name, address, qr };
         }));
@@ -374,17 +375,43 @@ function createCameraBridge({ interfaces = localInterfaces, now = Date.now, orig
 
 if (require.main === module) {
   const bridge = createCameraBridge();
+  const withClaims = process.argv.includes('--with-claims');
   let claims;
   const stop = () => { bridge.close(); claims?.kill(); };
   const listen = (server, port, address) => new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(port, address, resolve);
+    const onError = error => {
+      if (withClaims && port !== 0 && ['EADDRINUSE', 'EACCES'].includes(error.code)) {
+        server.once('error', reject);
+        server.listen(0, address, onListening);
+      } else reject(error);
+    };
+    const onListening = () => {
+      server.removeListener('error', onError);
+      server.removeListener('error', reject);
+      resolve(server.address().port);
+    };
+    server.once('error', onError);
+    server.listen(port, address, onListening);
   });
-  const failed = error => { console.error(`Phone camera bridge: ${error.message}`); stop(); process.exitCode = 1; };
-  void Promise.all([listen(bridge.desktopServer, DESKTOP_PORT, '127.0.0.1'), listen(bridge.phoneServer, PHONE_PORT, '0.0.0.0')]).then(() => {
-    console.log('Phone camera bridge ready. Open Meesho Claims → Original evidence → Connect phone.');
-    if (process.argv.includes('--with-claims')) {
-      claims = spawn(process.execPath, [require.resolve('next/dist/bin/next'), 'dev', '--webpack', '--hostname', '127.0.0.1', '--port', '3000'], { stdio: 'inherit', windowsHide: true });
+  const failed = error => {
+    console.error(`Phone camera bridge: ${error.message}`);
+    if (error.code === 'EADDRINUSE') {
+      console.error(`Port ${error.port} is in use. If the bridge is already running in another terminal, use that copy. To restart it, press Ctrl+C in its terminal first.`);
+    }
+    stop();
+    process.exitCode = 1;
+  };
+  void Promise.all([listen(bridge.desktopServer, DESKTOP_PORT, '127.0.0.1'), listen(bridge.phoneServer, PHONE_PORT, '0.0.0.0')]).then(([desktopPort]) => {
+    const claimsUrl = withClaims ? 'http://localhost:3000/claims' : `${HOSTED_CLAIMS_ORIGIN}/claims`;
+    console.log('Phone camera bridge ready. Keep this terminal open while using the camera.');
+    console.log(`Open ${claimsUrl} in Chrome on this laptop, then select Connect phone.`);
+    if (!withClaims) console.log('Choose Allow if Chrome asks for Loopback or Local Network access.');
+    if (withClaims) {
+      const nextArgs = process.argv.slice(2).filter(arg => arg !== '--with-claims');
+      claims = spawn(process.execPath, [require.resolve('next/dist/bin/next'), 'dev', '--hostname', '127.0.0.1', ...nextArgs], {
+        env: { ...process.env, NEXT_PUBLIC_PHONE_CAMERA_MODE: 'bridge', NEXT_PUBLIC_PHONE_CAMERA_CONTROL_PORT: String(desktopPort) },
+        stdio: 'inherit', windowsHide: true,
+      });
       claims.on('error', failed);
       claims.on('exit', code => { bridge.close(); process.exitCode = code || 0; });
     }

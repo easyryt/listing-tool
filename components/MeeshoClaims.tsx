@@ -8,6 +8,7 @@ import { deleteClaim, listClaims, readClaimEvidence, saveClaim } from "@/lib/mee
 import { checkClaimsExtension, openPreparedClaim, prepareMeeshoClaim } from "@/lib/meesho-claims-client";
 import ClaimLabelScanner, { type ClaimLabelScannerHandle } from "@/components/ClaimLabelScanner";
 import ClaimPhoneCamera from "@/components/ClaimPhoneCamera";
+import ClaimBrowserCamera from "@/components/ClaimBrowserCamera";
 import MeeshoRecordingGuide from "@/components/MeeshoRecordingGuide";
 import { CLAIM_IDENTIFIER_LABELS, type ClaimIdentifier, type ClaimIdentifiers } from "@/lib/meesho-label-reader";
 
@@ -18,6 +19,7 @@ const secondaryButton = `${buttonClass} border border-slate-300 bg-white text-sl
 const sectionClass = "scroll-mt-4 scroll-mb-28 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6";
 const labelClass = "text-sm font-medium text-slate-800";
 const claimStatus = { draft: "Draft", prepared: "Ready for review", submitted: "Submitted" };
+const PhoneCamera = process.env.NEXT_PUBLIC_PHONE_CAMERA_MODE === "bridge" ? ClaimPhoneCamera : ClaimBrowserCamera;
 const evidenceSize = (bytes: number) => bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 function ClaimIdentifierField({ field, value, disabled, onChange, onPhoto }: { field: ClaimIdentifier; value: string; disabled: boolean; onChange: (value: string) => void; onPhoto: () => void }) {
@@ -368,7 +370,7 @@ export default function MeeshoClaims() {
                   {processing ? "Adding file…" : `${REQUIRED_EVIDENCE.length - missingEvidence.length}/${REQUIRED_EVIDENCE.length} required added`}
                 </span>
               </div>
-              <ClaimPhoneCamera available={!submitted} disabled={busy || processing || scanning}
+              <PhoneCamera available={!submitted} disabled={busy || processing || scanning}
                 onBusyChange={setPhoneBusy} onUse={chooseEvidence}>
                 {(connection, cameraButton) => <>
                   {connection}
@@ -383,7 +385,7 @@ export default function MeeshoClaims() {
                     })}
                   </div>
                 </>}
-              </ClaimPhoneCamera>
+              </PhoneCamera>
               <p className="mt-4 flex items-start gap-2 text-xs leading-5 text-slate-600">
                 <HardDrive size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
                 Files stay in this browser until you send them to Meesho. Clearing site data removes saved evidence.

@@ -1,8 +1,14 @@
 # Direct Meesho image upload
 
-Use **Upload to Meesho** beside an image field in the listing tool. PNG/JPG images up to 4 MB are supported. The control also appears beside the selected image in the AI assistants, in batch review, and in saved-product/variant editors. Extension **0.10.0** supports **https://listing-tool-three.vercel.app**, as well as the local listing app.
+Use **Upload to Meesho** beside an image field in the listing tool. PNG/JPG images up to 4 MB are supported. The control also appears beside the selected image in the AI assistants, in batch review, and in saved-product/variant editors. Extension **0.12.0** supports seller selection on **https://listing-tool-three.vercel.app** and in the local listing app.
 
 The custom Chrome extension reuses one extension-owned Meesho Image Bulk Upload tab, supplies the selected image, requests its direct URL, and fills the original image field. The ordinary listing save flow stores that field in your product database; uploading an image does not separately commit the listing or publish a catalog.
+
+## Choose your seller account
+
+Sign in directly in the Meesho Supplier Panel in the Chrome profile that runs the extension. Leave your seller’s **Image Bulk Upload** or **Claims** page open, then choose **Upload to Meesho**. One detected seller is used for the entire selected batch. If multiple seller pages are open, enter the intended seller’s **Image Bulk Upload** URL in the upload settings. Clear the saved URL and select **Use automatic selection** to switch back to detection.
+
+For a saved upload, picking a seller applies only before the file was supplied. If the file may have been sent, retry checks the original seller tab. Updating the extension clears the staged image bytes, so select the image again if Chrome says the staged file expired and the upload never started.
 
 ## Upload without downloading a copy — 0.10.0
 
@@ -54,7 +60,7 @@ The phone catalog and design 359 charm page were checked in Chrome. The shared u
 1. Open **https://listing-tool-three.vercel.app** in Chrome after redeploying the updated frontend. Local development at **http://localhost:3000** or **http://127.0.0.1:3000** also works. Use `npm run dev`, or `npm run dev:webpack` if Turbopack’s CSS worker fails on this computer.
 2. Update and reload **Browser AI Test — Local Listing Assistant** in `chrome://extensions`. Confirm **0.10.0** and allow access to the exact deployed listing domain. Downloads permission is not needed. No wildcard access to other Vercel sites is requested.
 3. For a fresh installation, use **Load unpacked** with this repository’s `browser-extension` folder. A distributable ZIP is served at **/listing-meesho-extension.zip**. Keep one extension copy enabled.
-4. Refresh the listing page. Sign in to Meesho in Chrome. The settings icon beside an upload button lets you set your own Meesho Image Bulk Upload URL; the default is the page supplied in this chat.
+4. Refresh the listing page and sign in to Meesho in Chrome. Open your seller’s **Image Bulk Upload** page to use automatic selection, or save its URL in the settings beside an upload button.
 
 The standalone test server on port 4317 is **not required** for listing uploads. With extension 0.10.0 the frontend sends the selected bytes to its fixed extension workflow. The extension validates the file signature, size, SHA-256, product row and image slot, holds the bytes in `chrome.storage.session`, and supplies them through Meesho's ordinary file input and input/change events. Image bytes are never written to persistent extension storage or downloaded. Operation metadata is capped at 250 entries; completed metadata expires when needed. The web app never supplies arbitrary local paths or browser commands.
 

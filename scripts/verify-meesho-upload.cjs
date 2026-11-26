@@ -35,21 +35,77 @@ test("staged images are immutable, operation-authorized, and fingerprint checked
 });
 function clientFixture(options={}){
   const doc=new EventTarget(),storage=new Map(),staged=new Map(),calls=[],waiting=[];let active=0,maxActive=0;
-  const session={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)};
-  const context=vm.createContext({module:{exports:{}},exports:{},require:name=>{if(name==="./meesho-upload-contract")return contract;if(name==="./meesho-image-set")return require(path.join(root,"lib/meesho-image-set.ts"));throw new Error(name);},window:{},document:doc,CustomEvent,File,AbortSignal,crypto:crypto.webcrypto,location:{origin:options.origin||"http://localhost:3000"},localStorage:session,sessionStorage:session,
+  const session={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
+  const context=vm.createContext({module:{exports:{}},exports:{},require:name=>{if(name==="./meesho-upload-contract")return contract;if(name==="./meesho-image-set")return require(path.join(root,"lib/meesho-image-set.ts"));throw new Error(name);},window:{},document:doc,CustomEvent,File,URL,AbortSignal,crypto:crypto.webcrypto,location:{origin:options.origin||"http://localhost:3000"},localStorage:session,sessionStorage:session,
     setTimeout:(fn,ms)=>setTimeout(fn,ms===1000?5:ms),clearTimeout,setInterval,clearInterval,
     FileReader:class{readAsDataURL(file){file.arrayBuffer().then(bytes=>{this.result="data:"+file.type+";base64,"+Buffer.from(bytes).toString("base64");this.onload();});}},
     fetch:async(url,init)=>{const input=JSON.parse(init.body);calls.push({type:"stage",id:input.jobId,target:input.target});const bytes=Buffer.from(input.file.base64,"base64"),descriptor={id:input.jobId,target:input.target,type:input.file.type,originalName:input.file.name,bytes:bytes.length,token:"c".repeat(64),sha256:crypto.createHash("sha256").update(bytes).digest("hex"),filename:`browser-ai-meesho-test-20261102000000-${input.jobId.slice(0,8)}.png`};staged.set(input.jobId,descriptor);return{ok:true,json:async()=>descriptor};}
   });context.exports=context.module.exports;
   doc.addEventListener("listing-meesho-request",event=>{const m=JSON.parse(event.detail);const reply=data=>doc.dispatchEvent(new CustomEvent("listing-meesho-response",{detail:JSON.stringify({ok:true,requestId:m.requestId,...data})}));
-    if(m.type==="listing-meesho-hello"){reply({id:"a".repeat(32),version:"0.10.0",listingUpload:true,singleTabUploads:!options.oldExtension,browserStaging:true,downloadFreeUploads:options.downloadFreeUploads!==false});return;}
+    if(m.type==="listing-meesho-hello"){reply({id:"a".repeat(32),version:"0.12.0",listingUpload:true,sellerAccountDetection:options.sellerAccountDetection!==false,singleTabUploads:!options.oldExtension,browserStaging:true,downloadFreeUploads:options.downloadFreeUploads!==false});return;}
+    if(m.type==="listing-meesho-account"){calls.push({type:"account"});reply(options.accountError?{ok:false,error:options.accountError}:{sourceUrl:sellerPage("seller-a")});return;}
     if(m.type==="listing-meesho-prepare"){const bytes=Buffer.from(m.file.base64,"base64"),descriptor={id:m.jobId,target:m.target,type:m.file.type,originalName:m.file.name,mode:"browser",bytes:bytes.length,token:"c".repeat(64),sha256:crypto.createHash("sha256").update(bytes).digest("hex"),filename:`browser-ai-meesho-test-20261102000000-${m.jobId.slice(0,8)}.png`};staged.set(m.jobId,descriptor);calls.push({type:"browser-stage",id:m.jobId,target:m.target});reply({staged:descriptor});return;}
     if(m.type==="listing-meesho-status"){reply({job:{id:m.jobId,phase:"finding-file"}});return;}
-    if(m.type==="listing-meesho-start"){calls.push({type:"upload",id:m.jobId,target:m.listing.target,origin:m.listing.origin,mode:m.listing.mode});active++;maxActive=Math.max(maxActive,active);const complete=()=>{active--;const s=staged.get(m.jobId),record={id:m.jobId,filename:s.filename,sha256:s.sha256,target:options.wrongTarget?{...s.target,field:"image4"}:s.target,url:`https://upload.meeshosupplyassets.com/cataloging/123/${s.filename}`};reply({job:{id:m.jobId,phase:"complete",record}});};if(options.hold)waiting.push(complete);else complete();}
+    if(m.type==="listing-meesho-start"){calls.push({type:"upload",id:m.jobId,sourceUrl:m.sourceUrl,target:m.listing.target,origin:m.listing.origin,mode:m.listing.mode});active++;maxActive=Math.max(maxActive,active);const complete=()=>{active--;const s=staged.get(m.jobId),record={id:m.jobId,filename:s.filename,sha256:s.sha256,target:options.wrongTarget?{...s.target,field:"image4"}:s.target,url:`https://upload.meeshosupplyassets.com/cataloging/123/${s.filename}`};reply({job:{id:m.jobId,phase:"complete",record}});};if(options.hold)waiting.push(complete);else complete();}
   });
   vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,"lib/meesho-upload-client.ts"),"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
   return{client:context.module.exports,calls,waiting,storage,maxActive:()=>maxActive};
 }
+const sellerPage = seller => `https://supplier.meesho.com/panel/v3/new/cataloging/${seller}/images-bulk-upload`;
+function loadMeeshoExtension(...files){
+  const context=vm.createContext({URL});
+  for(const file of files)vm.runInContext(fs.readFileSync(path.join(root,'browser-extension',file),'utf8'),context);
+  return context;
+}
+test("seller discovery validates open pages, deduplicates the same seller and stops on ambiguity",async()=>{
+  const {resolveSellerPage}=loadMeeshoExtension('meesho-core.js').BrowserTestMeesho;
+  const chromeFor=urls=>({tabs:{query:async ({url})=>{assert.equal(url,'https://supplier.meesho.com/*');return urls.map(value=>typeof value==='string'?{url:value}:value);}}});
+  const motiw=sellerPage('motiw'),other=sellerPage('another-seller');
+  assert.equal(await resolveSellerPage(chromeFor([motiw,'https://supplier.meesho.com/panel/v3/new/fulfillment/motiw/claims'])),motiw);
+  assert.equal(await resolveSellerPage(chromeFor([other]),motiw),motiw);
+  await assert.rejects(resolveSellerPage(chromeFor([motiw,other])),/More than one/);
+  await assert.rejects(resolveSellerPage(chromeFor([motiw.replace('.com','.com.example'),{url:motiw,pendingUrl:'https://supplier.meesho.com/'}])),/Sign in/);
+});
+test("the listing uses an explicit seller page or automatic detection and blocks upload without a seller",async()=>{
+  const f=clientFixture(),file=new File([makePng()],'image.png',{type:'image/png'}),motiw=sellerPage('motiw');
+  assert.equal(f.client.savedMeeshoPanel(),'');
+  f.client.saveMeeshoPanel(motiw);
+  await f.client.startMeeshoUpload(file,target,'');
+  assert.equal(f.calls.find(c=>c.type==='upload').sourceUrl,motiw);
+  assert.equal(f.calls.some(c=>c.type==='account'),false);
+  f.client.saveMeeshoPanel('');
+  assert.equal(f.client.savedMeeshoPanel(),'');
+  const missing=clientFixture({accountError:'Sign in to Meesho first.'});
+  await missing.client.startMeeshoUpload(file,target,'');
+  assert.deepEqual(missing.calls.map(c=>c.type),['account']);
+  assert.match(missing.client.getMeeshoUpload(target).message,/Sign in/);
+  const old=clientFixture({sellerAccountDetection:false});
+  await old.client.startMeeshoUpload(file,target,'');
+  assert.equal(old.calls.length,0);
+  assert.match(old.client.getMeeshoUpload(target).message,/0.12.0/);
+});
+test("saved retries can change the seller before file dispatch only",async()=>{
+  const {BrowserTestMeeshoRunner}=loadMeeshoExtension('meesho-core.js','meesho-runner.js');
+  const runner=new BrowserTestMeeshoRunner({});
+  const job={id:'saved',phase:'failed-before-upload',sourceUrl:sellerPage('old-seller'),tabId:5,uploadAttempted:false};
+  runner.get=async()=>job;
+  runner.write=async()=>{};
+  runner.open=async current=>{assert.equal(current.sourceUrl,sellerPage('motiw'));assert.equal(current.tabId,undefined);};
+  let sends=0,lookups=0;
+  runner.send=async()=>{sends++;};
+  runner.finish=async current=>current;
+  const select=async()=>{lookups++;return sellerPage('motiw');};
+  await runner.resume(job.id,1,undefined,select);
+  assert.equal(sends,1);
+  job.uploadAttempted=true;
+  runner.check=async()=>{throw new Error('The original tab changed.');};
+  await assert.rejects(runner.resume(job.id,1,undefined,select),/automatic re-upload is blocked/);
+  assert.equal(sends,1);
+  assert.equal(lookups,1);
+  const {BrowserTestMeeshoNative}=loadMeeshoExtension('meesho-core.js','meesho-native.js');
+  const native=new BrowserTestMeeshoNative({chromeApi:{tabs:{get:async()=>({url:sellerPage('another-seller')})}},stage:async()=>assert.fail('The wrong seller should not receive bytes.')});
+  await assert.rejects(native.upload({tabId:5,sourceUrl:sellerPage('motiw')}),/selected Meesho seller/);
+});
 test("two image slots queue separately; each receives its own URL and never reaches 100 before field acknowledgement",async()=>{
   const f=clientFixture(),a=target,b={rowId:"variant-456",field:"image2"};
   await Promise.all([f.client.startMeeshoUpload(new File([makePng()],"first.png",{type:"image/png"}),a,""),f.client.startMeeshoUpload(new File([makePng()],"second.png",{type:"image/png"}),b,"")]);
@@ -70,7 +126,7 @@ test("selecting another source image while uploading prevents the original resul
   f.client.invalidateMeeshoSelection(target);f.waiting.shift()();await operation;assert.equal(f.client.getMeeshoUpload(target).superseded,true);assert.equal(f.client.getMeeshoUpload(target).progress,95);
 });
 test("local-only staging and supplier upload page validation reject other destinations",()=>{
-  assert.equal(staging.localListingOrigin("http://localhost:3000"),true);assert.equal(staging.localListingOrigin("https://example.com"),false);assert.equal(contract.isMeeshoPanel(contract.MEESHO_PANEL),true);assert.equal(contract.isMeeshoPanel("https://supplier.meesho.com/orders"),false);
+  assert.equal(staging.localListingOrigin("http://localhost:3000"),true);assert.equal(staging.localListingOrigin("https://example.com"),false);assert.equal(contract.isMeeshoPanel(sellerPage('motiw')),true);assert.equal(contract.isMeeshoPanel("https://supplier.meesho.com/orders"),false);
 });
 test("the supplied four image filenames map correctly regardless of selection order",()=>{
   const names=["Sup 2.png","Sup 3.png","1.png","Sup 1.png"].map(name=>({name}));
@@ -94,6 +150,8 @@ test("one four-file selection produces four serial, slot-bound uploads and aggre
   const slots=imageSet.arrangeProductImages(["Sup 2.png","1.png","Sup 3.png","Sup 1.png"].map(name=>new File([makePng()],name,{type:"image/png"})));
   const ticket=f.client.startMeeshoImageSet(rowId,slots.map((file,n)=>({field:imageSet.PRODUCT_IMAGE_SLOTS[n],file})),values);assert.equal(ticket.jobs.length,4);
   await ticket.finished;assert.equal(f.maxActive(),1);assert.equal(f.calls.filter(c=>c.type==="upload").length,4);
+  assert.equal(f.calls.filter(c=>c.type==='account').length,1);
+  assert.ok(f.calls.filter(c=>c.type==='upload').every(c=>c.sourceUrl===sellerPage('seller-a')));
   const read=entry=>f.client.getMeeshoUpload({rowId,field:entry.field});
   assert.equal(imageSet.imageSetProgress(ticket.jobs,read,values).percent,95);assert.equal(new Set(ticket.jobs.map(j=>read(j).receipt.url)).size,4);
   for(const [index,j]of ticket.jobs.entries()){const job=read(j);assert.equal(job.receipt.target.field,imageSet.PRODUCT_IMAGE_SLOTS[index]);assert.equal(job.originalName,slots[index].name);values[j.field]=job.receipt.url;f.client.markMeeshoApplied({rowId,field:j.field},j.id);}

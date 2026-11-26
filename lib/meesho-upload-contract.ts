@@ -4,7 +4,7 @@ export type MeeshoReceipt = {
   id: string; originalName: string; filename: string; url: string; sha256: string;
   target: MeeshoTarget; copied?: boolean;
 };
-export const MEESHO_PANEL = "https://supplier.meesho.com/panel/v3/new/cataloging/jifdb/images-bulk-upload";
+export const MEESHO_SUPPLIER_HOME = "https://supplier.meesho.com/";
 export function meeshoTargetKey(target: MeeshoTarget) { return JSON.stringify([target.rowId, target.field]); }
 export function validMeeshoTarget(value: unknown): value is MeeshoTarget {
   if (!value || typeof value !== "object") return false;

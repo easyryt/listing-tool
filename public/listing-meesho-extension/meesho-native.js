@@ -2,9 +2,9 @@
 (() => {
   class BrowserTestMeeshoNative {
     constructor({chromeApi=globalThis.chrome,stage}={}){this.chrome=chromeApi;this.stage=stage;}
-    async upload({tabId,jobId,file,code,beforeDispatch=async()=>{},afterStaging=async()=>{}}){
+    async upload({tabId,sourceUrl,jobId,file,code,beforeDispatch=async()=>{},afterStaging=async()=>{}}){
       const chrome=this.chrome,target={tabId};let attached=false;
-      const check=async()=>{if(!globalThis.BrowserTestMeesho.isUpload((await chrome.tabs.get(tabId)).url))throw new Error('The tab left Meesho Image Bulk Upload. No image was supplied.');};
+      const check=async()=>{const tab=await chrome.tabs.get(tabId);if(!globalThis.BrowserTestMeesho.isUpload(tab.url)||tab.url!==sourceUrl||(tab.pendingUrl&&tab.pendingUrl!==sourceUrl))throw new Error('The tab left the selected Meesho seller’s upload page.');};
       const command=async(method,params={})=>{await check();return chrome.debugger.sendCommand(target,method,params);};
       try{
         await check();if(!['image/png','image/jpeg'].includes(file?.type))throw new Error('Choose a PNG or JPG image.');if(file.base64!==undefined)globalThis.BrowserTestDrive.decodeImage(file);
@@ -15,7 +15,7 @@
           await afterStaging();await check();await beforeDispatch();
           const results=await chrome.scripting.executeScript({target,world:'ISOLATED',func:async function meeshoSupplySelectedImage(selected,expected){
             const page=new URL(location.href);
-            if(page.origin!=='https://supplier.meesho.com'||page.username||page.password||page.search||page.hash||!/^\/panel\/v3\/new\/cataloging\/[\w-]+\/images-bulk-upload$/.test(page.pathname))throw new Error('The tab left Meesho Image Bulk Upload.');
+            if(page.href!==expected.sourceUrl)throw new Error('The tab left the selected Meesho seller’s upload page.');
             const input=document.querySelector('input#imageBulkUploadGetFile[type="file"]');
             if(!input||input.disabled||input.hasAttribute('webkitdirectory'))throw new Error('Meesho’s image picker is unavailable.');
             const data=Uint8Array.from(atob(selected.base64),value=>value.charCodeAt(0));
@@ -28,7 +28,7 @@
             input.dispatchEvent(new Event('input',{bubbles:true,composed:true}));
             input.dispatchEvent(new Event('change',{bubbles:true,composed:true}));
             return{dispatched:true,method:'memory-file-input'};
-          },args:[staged.file,{bytes:code.bytes,sha256:code.sha256}]});
+          },args:[staged.file,{bytes:code.bytes,sha256:code.sha256,sourceUrl}]});
           if(!results[0]?.result?.dispatched)throw new Error('Meesho did not confirm receiving this selected image.');
           return results[0].result;
         }
