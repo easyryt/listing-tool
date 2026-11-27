@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ArrowDown, ArrowUp, Check, Images, LoaderCircle, X } from "lucide-react";
 import UploadedImagePreview from "./UploadedImagePreview";
+import MeeshoExtensionStatus, { useMeeshoExtension } from "./MeeshoExtensionStatus";
 import { canApplyMeeshoReceipt, type MeeshoImageField } from "@/lib/meesho-upload-contract";
 import { arrangeProductImages, imageSetProgress, PRODUCT_IMAGE_SLOTS, validateProductImageFiles, type ProductImageSetJob, type ProductImageValues } from "@/lib/meesho-image-set";
 import { getMeeshoUpload, getMeeshoUploadRevision, markMeeshoApplied, resumeMeeshoUpload, startMeeshoImageSet, startMeeshoUpload, subscribeMeesho } from "@/lib/meesho-upload-client";
@@ -19,6 +20,8 @@ export default function MeeshoImageSetUpload({ rowId, values, onChange, disabled
   rowId: string; values: ProductImageValues; onChange: (field: MeeshoImageField, url: string) => void; disabled?: boolean; compact?: boolean;
 }) {
   const revision = useSyncExternalStore(subscribeMeesho, getMeeshoUploadRevision, () => 0);
+  const connection = useMeeshoExtension();
+  const canUpload = connection.phase === "connected" && !disabled;
   const [selection, setSelection] = useState<{ rowId: string; slots: Array<File | null> } | null>(null);
   const [batch, setBatch] = useState<{ rowId: string; jobs: ProductImageSetJob[] } | null>(null);
   const [error, setError] = useState("");
@@ -45,7 +48,7 @@ export default function MeeshoImageSetUpload({ rowId, values, onChange, disabled
   };
   const swap = (from: number, to: number) => { if (!slots || to < 0 || to > 3) return; const next = [...slots]; [next[from], next[to]] = [next[to], next[from]]; setSelection({ rowId, slots: next }); };
   const start = () => {
-    if (!slots || disabled || active) return;
+    if (!slots || !canUpload || active) return;
     try {
       const selections = slots.flatMap((file, index) => file ? [{ field: PRODUCT_IMAGE_SLOTS[index], file }] : []);
       const ticket = startMeeshoImageSet(rowId, selections, values);
@@ -54,7 +57,7 @@ export default function MeeshoImageSetUpload({ rowId, values, onChange, disabled
     } catch (e) { setError(e instanceof Error ? e.message : "Could not queue this image set."); }
   };
   const reupload = (field: MeeshoImageField, file: File) => {
-    if (disabled || active) return;
+    if (!canUpload || active) return;
     try {
       const operation = startMeeshoUpload(file, { rowId, field }, values[field]);
       const job = getMeeshoUpload({ rowId, field }); if (!job) return;
@@ -65,9 +68,10 @@ export default function MeeshoImageSetUpload({ rowId, values, onChange, disabled
   return <div data-meesho-image-set={rowId} className={`my-3 rounded-xl border border-violet-200 bg-violet-50/40 ${compact ? "p-2" : "p-4"}`}>
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><p className="flex items-center gap-2 text-xs font-bold text-slate-800"><Images size={15} />Main + supporting images</p>{!compact && <p className="mt-1 text-xs leading-5 text-slate-500">Choose up to 4 images for this product. 1.png → Main; Sup 1, Sup 2, Sup 3 → Images 2–4.</p>}</div>
-      <button type="button" disabled={disabled || active} onClick={() => picker.current?.click()} aria-label={`Choose main and supporting images for ${rowId}`} className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"><Images size={14} />{jobs.length ? "Choose another image set" : "Choose up to 4 images"}</button>
+      <button type="button" disabled={!canUpload || active} onClick={() => picker.current?.click()} aria-label={`Choose main and supporting images for ${rowId}`} className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"><Images size={14} />{jobs.length ? "Choose another image set" : "Choose up to 4 images"}</button>
       <input ref={picker} type="file" multiple accept="image/png,image/jpeg" className="hidden" aria-label={`Choose bulk Meesho images for ${rowId}`} onChange={e => { const files = Array.from(e.target.files || []); e.target.value = ""; if (files.length) choose(files); }} />
     </div>
+    <div className="mt-2"><MeeshoExtensionStatus connection={connection} /></div>
     {slots && <>
       <div className={`mt-3 grid gap-3 ${compact ? "grid-cols-1" : "grid-cols-2 lg:grid-cols-4"}`}>
         {slots.map((file, index) => {
@@ -81,14 +85,14 @@ export default function MeeshoImageSetUpload({ rowId, values, onChange, disabled
               {!jobs.length && <div className="mt-2 flex items-center gap-1"><button type="button" disabled={index === 0 || disabled} aria-label={`Move ${file.name} earlier`} onClick={() => swap(index, index - 1)} className="rounded border p-1 text-slate-500 disabled:opacity-30"><ArrowUp size={13} /></button><button type="button" disabled={index === 3 || disabled} aria-label={`Move ${file.name} later`} onClick={() => swap(index, index + 1)} className="rounded border p-1 text-slate-500 disabled:opacity-30"><ArrowDown size={13} /></button><button type="button" disabled={disabled} aria-label={`Remove selected ${file.name}`} onClick={() => { const next = [...slots]; next[index] = null; setSelection({ rowId, slots: next }); }} className="ml-auto rounded p-1 text-slate-400"><X size={13} /></button></div>}
             </> : <p className="flex min-h-28 items-center justify-center rounded-lg border border-dashed px-2 text-center text-[11px] text-slate-400">No new image. Existing link stays.</p>}
             {matches && <div className="mt-2"><div role="progressbar" aria-label={`Bulk Image ${index + 1} progress`} aria-valuenow={linked ? 100 : Math.min(job.progress,95)} aria-valuemin={0} aria-valuemax={100} className="h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={linked ? "h-full bg-emerald-500" : "h-full bg-violet-500"} style={{width:`${linked ? 100 : Math.min(job.progress,95)}%`}} /></div><p role="status" className={`mt-2 text-[11px] leading-4 ${linked ? "text-emerald-700" : conflict || job.phase === "error" ? "text-rose-600" : "text-slate-500"}`}>{linked ? "✓ 100% · Correct image link filled" : conflict ? "Field changed; newer link preserved." : job.message}</p>
-              {job.phase === "error" && job.canResume && <button type="button" disabled={disabled || active} onClick={() => void resumeMeeshoUpload({ rowId, field })} className="mt-2 text-[11px] font-semibold text-violet-700">Check this image’s saved upload</button>}
+              {job.phase === "error" && job.canResume && <button type="button" disabled={!canUpload || active} onClick={() => void resumeMeeshoUpload({ rowId, field })} className="mt-2 text-[11px] font-semibold text-violet-700 disabled:opacity-50">Check this image’s saved upload</button>}
               {conflict && receipt && <button type="button" disabled={disabled} onClick={() => onChange(field,receipt.url)} className="mt-2 text-[11px] font-semibold text-violet-700">Use this uploaded image</button>}
-              {linked && file && <button type="button" disabled={disabled || active} aria-label={`Re-upload selected ${file.name}`} onClick={() => reupload(field,file)} className="mt-2 text-[11px] font-semibold text-slate-500 underline disabled:opacity-40">Re-upload this image</button>}
+              {linked && file && <button type="button" disabled={!canUpload || active} aria-label={`Re-upload selected ${file.name}`} onClick={() => reupload(field,file)} className="mt-2 text-[11px] font-semibold text-slate-500 underline disabled:opacity-40">Re-upload this image</button>}
             </div>}
           </div>;
         })}
       </div>
-      {!jobs.length && <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-500">Check the order before uploading. Empty slots keep their current links. PNG/JPG, up to 4 MB each.</p><button type="button" disabled={disabled || !selectedCount} onClick={start} className="rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-50">Upload {selectedCount} image{selectedCount === 1 ? "" : "s"} to Meesho</button></div>}
+      {!jobs.length && <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-slate-500">Check the order before uploading. Empty slots keep their current links. PNG/JPG, up to 4 MB each.</p><button type="button" disabled={!canUpload || !selectedCount} onClick={start} className="rounded-lg bg-violet-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-violet-700 disabled:opacity-50">Upload {selectedCount} image{selectedCount === 1 ? "" : "s"} to Meesho</button></div>}
     </>}
     {!!jobs.length && <div className="mt-3 rounded-lg bg-white p-3"><div className="flex items-center justify-between gap-3 text-xs font-semibold text-slate-700"><span className="flex items-center gap-2">{summary.completed === jobs.length ? <Check size={14} className="text-emerald-600" /> : active ? <LoaderCircle size={14} className="animate-spin text-violet-600" /> : null}{summary.completed} of {jobs.length} image links filled</span><span>{summary.percent}%</span></div><div role="progressbar" aria-label="Product image set upload and link progress" aria-valuenow={summary.percent} aria-valuemin={0} aria-valuemax={100} className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div style={{width:`${summary.percent}%`}} className={`h-full transition-[width] ${summary.completed === jobs.length ? "bg-emerald-500" : "bg-violet-500"}`} /></div><p className="mt-2 text-[11px] text-slate-500">{summary.completed === jobs.length ? "All selected images are uploaded and linked to this product in the chosen order." : "Images upload separately. Each confirmed link fills only its assigned slot; successful images are not re-uploaded by retry."}</p></div>}
     {error && <p role="alert" className="mt-2 text-xs text-rose-600">{error}</p>}

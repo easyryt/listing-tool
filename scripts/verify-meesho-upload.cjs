@@ -34,29 +34,149 @@ test("staged images are immutable, operation-authorized, and fingerprint checked
   await fsp.writeFile(resolved.path,Buffer.from("changed"));await assert.rejects(staging.resolveMeeshoImage({jobId,token:prepared.token},dir),/changed/);
 });
 function clientFixture(options={}){
-  const doc=new EventTarget(),storage=new Map(),staged=new Map(),calls=[],waiting=[];let active=0,maxActive=0;
+  const doc=new EventTarget(),window=new EventTarget(),storage=new Map(),staged=new Map(),calls=[],waiting=[];let active=0,maxActive=0,helloAttempts=0;
   const session={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
-  const context=vm.createContext({module:{exports:{}},exports:{},require:name=>{if(name==="./meesho-upload-contract")return contract;if(name==="./meesho-image-set")return require(path.join(root,"lib/meesho-image-set.ts"));throw new Error(name);},window:{},document:doc,CustomEvent,File,URL,AbortSignal,crypto:crypto.webcrypto,location:{origin:options.origin||"http://localhost:3000"},localStorage:session,sessionStorage:session,
+  const context=vm.createContext({module:{exports:{}},exports:{},require:name=>{if(name==="./meesho-upload-contract")return contract;if(name==="./meesho-image-set")return require(path.join(root,"lib/meesho-image-set.ts"));throw new Error(name);},window,document:doc,CustomEvent,File,URL,AbortSignal,crypto:crypto.webcrypto,location:{origin:options.origin||"http://localhost:3000"},localStorage:session,sessionStorage:session,
     setTimeout:(fn,ms)=>setTimeout(fn,ms===1000?5:ms),clearTimeout,setInterval,clearInterval,
     FileReader:class{readAsDataURL(file){file.arrayBuffer().then(bytes=>{this.result="data:"+file.type+";base64,"+Buffer.from(bytes).toString("base64");this.onload();});}},
     fetch:async(url,init)=>{const input=JSON.parse(init.body);calls.push({type:"stage",id:input.jobId,target:input.target});const bytes=Buffer.from(input.file.base64,"base64"),descriptor={id:input.jobId,target:input.target,type:input.file.type,originalName:input.file.name,bytes:bytes.length,token:"c".repeat(64),sha256:crypto.createHash("sha256").update(bytes).digest("hex"),filename:`browser-ai-meesho-test-20261102000000-${input.jobId.slice(0,8)}.png`};staged.set(input.jobId,descriptor);return{ok:true,json:async()=>descriptor};}
   });context.exports=context.module.exports;
-  doc.addEventListener("listing-meesho-request",event=>{const m=JSON.parse(event.detail);const reply=data=>doc.dispatchEvent(new CustomEvent("listing-meesho-response",{detail:JSON.stringify({ok:true,requestId:m.requestId,...data})}));
-    if(m.type==="listing-meesho-hello"){reply({id:"a".repeat(32),version:"0.12.0",listingUpload:true,sellerAccountDetection:options.sellerAccountDetection!==false,singleTabUploads:!options.oldExtension,browserStaging:true,downloadFreeUploads:options.downloadFreeUploads!==false});return;}
+  const handleRequest=event=>{
+    const m=JSON.parse(event.detail);
+    const reply=data=>doc.dispatchEvent(new CustomEvent("listing-meesho-response",{detail:JSON.stringify({ok:true,requestId:m.requestId,extensionId:m.extensionId,...data})}));
+    if(m.type==="listing-meesho-hello"){
+      helloAttempts++;
+      if(options.noExtension||helloAttempts<(options.replyOnHello||1))return;
+      if(options.helloError){reply({ok:false,error:options.helloError});return;}
+      const hello={id:"a".repeat(32),version:options.routedReplies?"0.12.1":"0.12.0",routedReplies:options.routedReplies,listingUpload:true,sellerAccountDetection:options.sellerAccountDetection!==false,singleTabUploads:!options.oldExtension,browserStaging:true,downloadFreeUploads:options.downloadFreeUploads!==false};
+      reply(hello);
+      if(options.secondExtension)reply({...hello,id:"b".repeat(32)});
+      return;
+    }
+    if(options.routedReplies){
+      assert.equal(event.type,"listing-meesho-routed-request");
+      assert.equal(m.extensionId,"a".repeat(32));
+      reply({ok:false,extensionId:undefined,error:"Late response from an invalidated bridge."});
+    }
     if(m.type==="listing-meesho-account"){calls.push({type:"account"});reply(options.accountError?{ok:false,error:options.accountError}:{sourceUrl:sellerPage("seller-a")});return;}
     if(m.type==="listing-meesho-prepare"){const bytes=Buffer.from(m.file.base64,"base64"),descriptor={id:m.jobId,target:m.target,type:m.file.type,originalName:m.file.name,mode:"browser",bytes:bytes.length,token:"c".repeat(64),sha256:crypto.createHash("sha256").update(bytes).digest("hex"),filename:`browser-ai-meesho-test-20261102000000-${m.jobId.slice(0,8)}.png`};staged.set(m.jobId,descriptor);calls.push({type:"browser-stage",id:m.jobId,target:m.target});reply({staged:descriptor});return;}
     if(m.type==="listing-meesho-status"){reply({job:{id:m.jobId,phase:"finding-file"}});return;}
     if(m.type==="listing-meesho-start"){calls.push({type:"upload",id:m.jobId,sourceUrl:m.sourceUrl,target:m.listing.target,origin:m.listing.origin,mode:m.listing.mode});active++;maxActive=Math.max(maxActive,active);const complete=()=>{active--;const s=staged.get(m.jobId),record={id:m.jobId,filename:s.filename,sha256:s.sha256,target:options.wrongTarget?{...s.target,field:"image4"}:s.target,url:`https://upload.meeshosupplyassets.com/cataloging/123/${s.filename}`};reply({job:{id:m.jobId,phase:"complete",record}});};if(options.hold)waiting.push(complete);else complete();}
-  });
+  };
+  doc.addEventListener("listing-meesho-request",handleRequest);
+  doc.addEventListener("listing-meesho-routed-request",handleRequest);
   vm.runInContext(ts.transpileModule(fs.readFileSync(path.join(root,"lib/meesho-upload-client.ts"),"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
-  return{client:context.module.exports,calls,waiting,storage,maxActive:()=>maxActive};
+  return{client:context.module.exports,doc,window,calls,waiting,storage,maxActive:()=>maxActive,helloAttempts:()=>helloAttempts};
 }
+test("the hosted listing retries extension discovery and reports browser connection failures before staging",async()=>{
+  const origin='https://listing-tool-three.vercel.app';
+  const file=new File([makePng()],'1.png',{type:'image/png'});
+  const delayed=clientFixture({origin,replyOnHello:3});
+  await delayed.client.startMeeshoUpload(file,target,'');
+  assert.equal(delayed.helloAttempts(),3);
+  assert.equal(delayed.client.getMeeshoUpload(target).phase,'ready');
+  assert.equal(delayed.calls.filter(call=>call.type==='upload').length,1);
+
+  const blocked=clientFixture({origin,noExtension:true});
+  await blocked.client.startMeeshoUpload(file,target,'');
+  assert.equal(blocked.helloAttempts(),4);
+  assert.equal(blocked.calls.length,0);
+  assert.match(blocked.client.getMeeshoUpload(target).message,/allow.*listing-tool-three\.vercel\.app/);
+
+  const error='The extension reloaded. Refresh the listing page, then check the saved upload.';
+  const reloaded=clientFixture({origin,helloError:error});
+  await reloaded.client.startMeeshoUpload(file,target,'');
+  assert.equal(reloaded.calls.length,0);
+  assert.equal(reloaded.client.getMeeshoUpload(target).message,error);
+
+  const duplicate=clientFixture({origin,secondExtension:true});
+  await duplicate.client.startMeeshoUpload(file,target,'');
+  assert.equal(duplicate.calls.length,0);
+  assert.match(duplicate.client.getMeeshoUpload(target).message,/Keep one Browser AI Test extension/);
+});
+test("subscribers share discovery and automatically reconnect when the bridge becomes ready",async t=>{
+  const options={origin:"https://listing-tool-three.vercel.app",noExtension:true};
+  const f=clientFixture(options);
+  const phases=[];
+  let onUnavailable;
+  let onConnected;
+  const unavailable=new Promise(resolve=>{onUnavailable=resolve;});
+  const connected=new Promise(resolve=>{onConnected=resolve;});
+  t.after(f.client.subscribeMeeshoExtension(()=>{
+    const state=f.client.getMeeshoExtensionState();
+    phases.push(state.phase);
+    if(state.phase==="unavailable")onUnavailable();
+    if(state.phase==="connected")onConnected();
+  }));
+  t.after(f.client.subscribeMeeshoExtension(()=>{}));
+  assert.equal(f.client.getMeeshoExtensionState().phase,"checking");
+  await unavailable;
+  assert.equal(f.helloAttempts(),4);
+  options.noExtension=false;
+  f.doc.dispatchEvent(new Event("listing-meesho-bridge-ready"));
+  await connected;
+  assert.equal(f.helloAttempts(),5);
+  assert.deepEqual(phases,["unavailable","checking","connected"]);
+  assert.equal(f.client.getMeeshoExtensionState().version,"0.12.0");
+  assert.equal(f.calls.length,0);
+});
+test("uploads target the connected extension through a channel legacy bridges cannot act on",async()=>{
+  const f=clientFixture({routedReplies:true});
+  const legacyRequests=[];
+  f.doc.addEventListener("listing-meesho-request",event=>{
+    const {type}=JSON.parse(event.detail);
+    if(type!=="listing-meesho-hello")legacyRequests.push(type);
+  });
+  await f.client.startMeeshoUpload(new File([makePng()],"1.png",{type:"image/png"}),target,"");
+  assert.equal(f.client.getMeeshoUpload(target).phase,"ready");
+  assert.equal(f.calls.filter(call=>call.type==="upload").length,1);
+  assert.deepEqual(legacyRequests,[]);
+});
 const sellerPage = seller => `https://supplier.meesho.com/panel/v3/new/cataloging/${seller}/images-bulk-upload`;
 function loadMeeshoExtension(...files){
   const context=vm.createContext({URL});
   for(const file of files)vm.runInContext(fs.readFileSync(path.join(root,'browser-extension',file),'utf8'),context);
   return context;
 }
+test("reconnection injects only into open listing tabs allowed by Chrome",async()=>{
+  const {reconnectOpenTabs}=loadMeeshoExtension("listing-core.js").BrowserTestListing;
+  const hosted="https://listing-tool-three.vercel.app";
+  const injected=[];
+  await reconnectOpenTabs({
+    tabs:{
+      query:async({url})=>{
+        assert.ok(url.includes(hosted+"/*"));
+        return [
+          {id:1,url:hosted+"/create-product"},
+          {id:2,url:"http://localhost:3000/"},
+          {id:3,url:"https://other-site.vercel.app/"},
+          {id:4,url:hosted+"/claims",pendingUrl:"https://other-site.vercel.app/"},
+        ];
+      },
+    },
+    permissions:{contains:async({origins})=>origins[0]===hosted+"/*"},
+    scripting:{executeScript:async params=>injected.push(params)},
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(injected)),[{target:{tabId:1},files:["listing-bridge.js"]}]);
+});
+test("reinjecting the listing bridge replaces its old listener",()=>{
+  const document=new EventTarget(),window={},requests=[],replies=[];
+  window.top=window;
+  const id="a".repeat(32);
+  const chrome={runtime:{id,sendMessage:(message,cb)=>{requests.push(message);cb({ok:true});}}};
+  const context=vm.createContext({location:{origin:"https://listing-tool-three.vercel.app"},document,window,chrome,CustomEvent});
+  const source=fs.readFileSync(path.join(root,"browser-extension","listing-bridge.js"),"utf8");
+  vm.runInContext(source,context);
+  vm.runInContext(source,context);
+  document.addEventListener("listing-meesho-response",event=>replies.push(JSON.parse(event.detail)));
+  for(const extensionId of [id,"b".repeat(32)]){
+    const detail=JSON.stringify({requestId:crypto.randomUUID(),type:"listing-meesho-status",extensionId});
+    document.dispatchEvent(new CustomEvent("listing-meesho-routed-request",{detail}));
+  }
+  assert.equal(requests.length,1);
+  assert.equal(replies.length,1);
+  assert.equal(replies[0].extensionId,id);
+});
 test("seller discovery validates open pages, deduplicates the same seller and stops on ambiguity",async()=>{
   const {resolveSellerPage}=loadMeeshoExtension('meesho-core.js').BrowserTestMeesho;
   const chromeFor=urls=>({tabs:{query:async ({url})=>{assert.equal(url,'https://supplier.meesho.com/*');return urls.map(value=>typeof value==='string'?{url:value}:value);}}});

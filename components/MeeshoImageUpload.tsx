@@ -3,15 +3,16 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, Copy, ImageUp, LoaderCircle, Settings2 } from "lucide-react";
 import UploadedImagePreview from "./UploadedImagePreview";
+import MeeshoExtensionStatus, { useMeeshoExtension } from "./MeeshoExtensionStatus";
 import { canApplyMeeshoReceipt, MEESHO_SUPPLIER_HOME, type MeeshoTarget } from "@/lib/meesho-upload-contract";
-import { checkMeeshoExtension, getMeeshoUpload, markMeeshoApplied, resumeMeeshoUpload, savedMeeshoPanel, saveMeeshoPanel, startMeeshoUpload, subscribeMeesho } from "@/lib/meesho-upload-client";
+import { getMeeshoUpload, markMeeshoApplied, resumeMeeshoUpload, savedMeeshoPanel, saveMeeshoPanel, startMeeshoUpload, subscribeMeesho } from "@/lib/meesho-upload-client";
 
 export default function MeeshoImageUpload({ target, value, onChange, disabled = false, file, label = "Upload to Meesho" }: {
   target: MeeshoTarget; value: string; onChange: (url: string) => void; disabled?: boolean; file?: File | null; label?: string;
 }) {
   const upload = useSyncExternalStore(subscribeMeesho, () => getMeeshoUpload(target), () => null);
   const [error, setError] = useState(""), [settings, setSettings] = useState(false), [panel, setPanel] = useState("");
-  const [connection, setConnection] = useState(""), [checking, setChecking] = useState(false);
+  const connection = useMeeshoExtension();
   const picker = useRef<HTMLInputElement>(null), applying = useRef("");
   const receipt = upload?.receipt;
   const conflict = !!upload && !!receipt && ((upload.superseded && value !== receipt.url) || !canApplyMeeshoReceipt(receipt, upload, value, upload.initialValue));
@@ -24,9 +25,18 @@ export default function MeeshoImageUpload({ target, value, onChange, disabled = 
     onChange(receipt.url);
   }, [upload, receipt, value, target, onChange, disabled, conflict]);
   const select = (selected?: File) => { if (!selected) return; setError(""); applying.current = ""; try { void startMeeshoUpload(selected, target, value); } catch (e) { setError(e instanceof Error ? e.message : "Choose an image."); } };
+  const openUpload = () => {
+    if (connection.phase !== "connected") {
+      setPanel(savedMeeshoPanel());
+      setSettings(true);
+      return;
+    }
+    if (file) select(file);
+    else picker.current?.click();
+  };
   return <div className="mt-2 space-y-2" data-meesho-target={`${target.rowId}:${target.field}`}>
     <div className="flex flex-wrap items-center gap-2">
-      <button type="button" disabled={disabled || active} onClick={() => file ? select(file) : picker.current?.click()} aria-label={`${label} for ${target.field} ${target.rowId}`} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50">{active ? <LoaderCircle size={14} className="animate-spin" /> : <ImageUp size={14} />}{label}</button>
+      <button type="button" disabled={disabled || active} onClick={openUpload} aria-label={`${label} for ${target.field} ${target.rowId}`} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50">{active ? <LoaderCircle size={14} className="animate-spin" /> : <ImageUp size={14} />}{label}</button>
       <input ref={picker} type="file" accept="image/png,image/jpeg" className="hidden" aria-label={`Choose Meesho image for ${target.field} ${target.rowId}`} onChange={e => { const selected = e.target.files?.[0]; e.target.value = ""; select(selected); }} />
       <button type="button" disabled={active} aria-label="Meesho upload settings" title="Meesho upload settings" onClick={() => { setPanel(savedMeeshoPanel()); setSettings(v => !v); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><Settings2 size={14} /></button>
     </div>
@@ -37,11 +47,9 @@ export default function MeeshoImageUpload({ target, value, onChange, disabled = 
         <input type="url" value={panel} onChange={e => setPanel(e.target.value)} placeholder="Automatically detect an open Meesho seller page" className="mt-1 w-full rounded border border-slate-200 bg-white p-2 font-normal" />
       </label>
       <button type="button" onClick={() => { try { saveMeeshoPanel(panel.trim()); setSettings(false); setError(""); } catch (e) { setError((e as Error).message); } }} className="font-semibold text-violet-700">{panel.trim() ? "Save seller page" : "Use automatic selection"}</button>
-      <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 pt-2">
-        <button type="button" disabled={checking} onClick={async () => { setChecking(true); try { setConnection(`Extension ${await checkMeeshoExtension()} connected.`); setError(""); } catch (e) { setConnection(""); setError((e as Error).message); } finally { setChecking(false); } }} className="font-semibold text-violet-700 disabled:opacity-50">{checking ? "Checking extension…" : "Check extension connection"}</button>
-        <a href="/listing-meesho-extension.zip" download className="text-violet-700 underline">Download extension 0.12.0</a>
+      <div className="border-t border-slate-200 pt-2">
+        <MeeshoExtensionStatus connection={connection} />
       </div>
-      {connection && <p role="status" className="font-semibold text-emerald-700">{connection}</p>}
     </div>}
     {upload && <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
       <div className="mb-1.5 flex items-center justify-between gap-2 text-[11px]"><span className="truncate font-medium text-slate-700" title={upload.originalName}>{upload.originalName}</span><span className="font-bold text-violet-700">{upload.progress}%</span></div>

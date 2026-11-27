@@ -3,6 +3,9 @@ importScripts('meesho-core.js','meesho-native.js','meesho-runner.js');
 importScripts('listing-core.js','listing-browser-stage.js');
 importScripts('claims-core.js','claims-page.js','claims-runner.js');
 const Drive = globalThis.BrowserTestDrive;
+const reconnectListingTabs=()=>{void globalThis.BrowserTestListing.reconnectOpenTabs(chrome).catch(()=>{});};
+chrome.runtime.onInstalled.addListener(reconnectListingTabs);
+chrome.permissions.onAdded.addListener(permissions=>{if(permissions.origins?.length)reconnectListingTabs();});
 if(chrome.storage?.local?.setAccessLevel) chrome.storage.local.setAccessLevel({accessLevel:'TRUSTED_CONTEXTS'}).catch(()=>{});
 async function pairedApi(code,timeoutMs=30000){
   let api=await localApi(timeoutMs);
@@ -67,7 +70,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if(sender.id===chrome.runtime.id&&listingOrigin&&(!sender.frameId||sender.frameId===0)&&message?.type?.startsWith('listing-meesho-')){
     (async()=>{
       const L=globalThis.BrowserTestListing;
-      if(message.type==='listing-meesho-hello')return{ok:true,id:chrome.runtime.id,version:chrome.runtime.getManifest().version,listingUpload:true,singleTabUploads:true,sellerAccountDetection:true,browserStaging:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript,downloadFreeUploads:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript};
+      if(message.type==='listing-meesho-hello')return{ok:true,id:chrome.runtime.id,version:chrome.runtime.getManifest().version,listingUpload:true,singleTabUploads:true,sellerAccountDetection:true,routedReplies:true,browserStaging:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript,downloadFreeUploads:!!chrome.storage?.session?.set&&!!chrome.scripting?.executeScript};
       if(message.type==='listing-meesho-account')return{ok:true,sourceUrl:await globalThis.BrowserTestMeesho.resolveSellerPage(chrome)};
       if(message.type==='listing-meesho-prepare'){
         if(!chrome.storage?.session?.set||!chrome.scripting?.executeScript)throw new Error('Reload Browser AI Test 0.10.0 and refresh the listing page to upload without downloading a copy.');
