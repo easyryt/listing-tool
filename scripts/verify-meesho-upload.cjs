@@ -183,8 +183,36 @@ test("seller discovery validates open pages, deduplicates the same seller and st
   const motiw=sellerPage('motiw'),other=sellerPage('another-seller');
   assert.equal(await resolveSellerPage(chromeFor([motiw,'https://supplier.meesho.com/panel/v3/new/fulfillment/motiw/claims'])),motiw);
   assert.equal(await resolveSellerPage(chromeFor([other]),motiw),motiw);
+  assert.equal(await resolveSellerPage(chromeFor([other])),other);
   await assert.rejects(resolveSellerPage(chromeFor([motiw,other])),/More than one/);
-  await assert.rejects(resolveSellerPage(chromeFor([motiw.replace('.com','.com.example'),{url:motiw,pendingUrl:'https://supplier.meesho.com/'}])),/Sign in/);
+  assert.equal(await resolveSellerPage(chromeFor([])),motiw);
+  assert.equal(await resolveSellerPage(chromeFor([other.replace('.com','.com.example'),{url:other,pendingUrl:'https://supplier.meesho.com/'}])),motiw);
+});
+test("the upload runner opens the fallback page and handles a sign-in redirect before supplying any image",async()=>{
+  const {BrowserTestMeesho,BrowserTestMeeshoRunner}=loadMeeshoExtension('meesho-core.js','meesho-runner.js');
+  const sourceUrl=sellerPage('motiw');
+  const state={};
+  const opened=[];
+  const tab={id:5,url:sourceUrl,status:'complete'};
+  const chromeApi={
+    tabs:{
+      query:async()=>[],
+      create:async options=>{opened.push(options);return tab;},
+      get:async()=>tab,
+    },
+    storage:{local:{get:async()=>state,set:async values=>Object.assign(state,values)}},
+    scripting:{executeScript:async()=>[{result:true}]},
+  };
+  assert.equal(await BrowserTestMeesho.resolveSellerPage(chromeApi),sourceUrl);
+  const runner=new BrowserTestMeeshoRunner({chromeApi,upload:async()=>assert.fail('An image may only be supplied after the seller page is verified.')});
+  await runner.open({id:'first',sourceUrl});
+  assert.equal(opened.length,1);
+  assert.equal(opened[0].url,sourceUrl);
+  assert.equal(opened[0].active,true);
+
+  tab.url='https://supplier.meesho.com/';
+  await assert.rejects(runner.resume('first',1),/Sign in to the intended seller in the Meesho tab opened/);
+  assert.equal((await runner.get('first')).phase,'failed-before-upload');
 });
 test("the listing uses an explicit seller page or automatic detection and blocks upload without a seller",async()=>{
   const f=clientFixture(),file=new File([makePng()],'image.png',{type:'image/png'}),motiw=sellerPage('motiw');

@@ -41,10 +41,10 @@ export default function MeeshoImageUpload({ target, value, onChange, disabled = 
       <button type="button" disabled={active} aria-label="Meesho upload settings" title="Meesho upload settings" onClick={() => { setPanel(savedMeeshoPanel()); setSettings(v => !v); }} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100"><Settings2 size={14} /></button>
     </div>
     {settings && <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-      <p className="text-slate-600">Sign in to Meesho in this Chrome profile and leave your Image Bulk Upload page open for automatic account selection.</p>
+      <p className="text-slate-600">Meesho opens automatically during upload. If prompted, sign in in the Meesho tab and retry the saved image.</p>
       <a href={MEESHO_SUPPLIER_HOME} target="_blank" rel="noopener noreferrer" className="inline-block font-semibold text-violet-700 hover:underline">Open Meesho Supplier Panel</a>
       <label className="block font-semibold">Seller’s upload page (optional)
-        <input type="url" value={panel} onChange={e => setPanel(e.target.value)} placeholder="Automatically detect an open Meesho seller page" className="mt-1 w-full rounded border border-slate-200 bg-white p-2 font-normal" />
+        <input type="url" value={panel} onChange={e => setPanel(e.target.value)} placeholder="Enter your seller’s Image Bulk Upload URL" className="mt-1 w-full rounded border border-slate-200 bg-white p-2 font-normal" />
       </label>
       <button type="button" onClick={() => { try { saveMeeshoPanel(panel.trim()); setSettings(false); setError(""); } catch (e) { setError((e as Error).message); } }} className="font-semibold text-violet-700">{panel.trim() ? "Save seller page" : "Use automatic selection"}</button>
       <div className="border-t border-slate-200 pt-2">

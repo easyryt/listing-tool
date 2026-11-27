@@ -1,6 +1,7 @@
 /* Fixed Meesho Image Bulk Upload boundaries and exact-row link capture. */
 (() => {
   const supplierOrigin='https://supplier.meesho.com';
+  const defaultUploadPage=`${supplierOrigin}/panel/v3/new/cataloging/motiw/images-bulk-upload`;
   function isUpload(value){try{const u=new URL(value);return u.origin==='https://supplier.meesho.com'&&!u.username&&!u.password&&!u.search&&!u.hash&&/^\/panel\/v3\/new\/cataloging\/[a-zA-Z0-9_-]+\/images-bulk-upload$/.test(u.pathname);}catch{return false;}}
   function sellerUploadPage(value){
     try{
@@ -19,8 +20,7 @@
     const tabs=await chrome.tabs.query({url:`${supplierOrigin}/*`});
     const pages=new Set(tabs.filter(tab=>!tab.pendingUrl||tab.pendingUrl===tab.url).map(tab=>sellerUploadPage(tab.url)).filter(Boolean));
     if(pages.size>1)throw new Error('More than one Meesho seller page is open. Save the correct Image Bulk Upload URL in upload settings.');
-    if(!pages.size)throw new Error('Sign in to the Meesho Supplier Panel in Chrome and leave your Image Bulk Upload page open, then retry.');
-    return pages.values().next().value;
+    return pages.values().next().value ?? defaultUploadPage;
   }
   function imageLink(value){try{const u=new URL(value);return u.origin==='https://upload.meeshosupplyassets.com'&&!u.username&&!u.password&&!u.search&&!u.hash&&/^\/cataloging\/\d+\/[a-zA-Z0-9_.-]+\.(png|jpg|jpeg)$/i.test(u.pathname)?u.href:null;}catch{return null;}}
   function uniqueName(type,iso,id){if(!['image/png','image/jpeg'].includes(type))throw new Error('Meesho accepts PNG or JPG images.');return 'browser-ai-meesho-test-'+iso.replace(/\D/g,'').slice(0,14)+'-'+id.slice(0,8)+(type==='image/png'?'.png':'.jpg');}

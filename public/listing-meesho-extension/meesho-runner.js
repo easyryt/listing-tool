@@ -22,7 +22,7 @@
       }else{tab=await this.chrome.tabs.create({url:job.sourceUrl,active:true});job.tabId=tab.id;await this.write(job);}
       await this.chrome.storage.local.set({[this.tabKey]:{tabId:job.tabId,sourceUrl:job.sourceUrl,jobId:job.id}});
       const started=this.now();while(this.now()-started<30000){const t=await this.chrome.tabs.get(job.tabId);if(t.status==='complete'){
-        if(!globalThis.BrowserTestMeesho.isUpload(t.url)||t.url!==job.sourceUrl)throw new Error('Sign in to the correct Meesho seller account, open its Image Bulk Upload page, then retry the saved image.');
+        if(!globalThis.BrowserTestMeesho.isUpload(t.url)||t.url!==job.sourceUrl)throw new Error('Sign in to the intended seller in the Meesho tab opened for this upload, then retry the saved image.');
         if(await this.script(job,function meeshoReady(marker){return!!document.querySelector('input#imageBulkUploadGetFile[type="file"]')&&(!marker||document.documentElement.getAttribute('data-listing-meesho-reset')!==marker);},[resetMarker]))return;
       }await this.delay(400);}throw new Error('Meesho’s upload page did not become ready.');
     }

@@ -135,7 +135,7 @@ function selectMeeshoDestination() {
   const configured = savedMeeshoPanel();
   let detected: Promise<string> | undefined;
   return (extensionId?: string) => configured ? Promise.resolve(configured) : detected ??= request("listing-meesho-account", {}, undefined, extensionId).then(reply => {
-    if (!reply.sourceUrl || !isMeeshoPanel(reply.sourceUrl)) throw new Error("Open your seller’s Image Bulk Upload page in Chrome and try again.");
+    if (!reply.sourceUrl || !isMeeshoPanel(reply.sourceUrl)) throw new Error("Choose your seller’s Image Bulk Upload URL in upload settings and retry.");
     return reply.sourceUrl;
   });
 }
