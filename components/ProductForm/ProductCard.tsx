@@ -29,6 +29,9 @@ import {
   generateSKU,
 } from "@/lib/sku";
 import { applyProductBrand, getBrandSupplyDetails } from "@/lib/brands";
+import { draftVariantImageRows } from "@/lib/meesho-variant-images";
+import { getMeeshoUpload } from "@/lib/meesho-upload-client";
+import MeeshoVariantImagesUpload from "@/components/MeeshoVariantImagesUpload";
 import {
   DEFAULT_PRODUCT_PRICE,
   DEFAULT_WRONG_DEFECTIVE_RETURN_DISCOUNT,
@@ -1571,6 +1574,14 @@ export default function ProductCard() {
       );
     };
 
+  const updateBatchMainImage = (productId: string, url: string) => {
+    const previous = products.find(product => product.id === productId);
+    updateVariantImage(productId, "image1", url);
+    if (editingProductId === productId && getValues("image1") === previous?.image1) {
+      setValue("image1", url, { shouldDirty: true, shouldValidate: true });
+    }
+  };
+
   /*
   |--------------------------------------------------------------------------
   | VARIANT AI TITLES
@@ -2004,6 +2015,15 @@ export default function ProductCard() {
               (second.variantNumber ??
                 0),
           );
+
+      const uploading = [parentProduct, ...localVariants].some(product => {
+        const upload = getMeeshoUpload({ rowId: product.id, field: "image1" });
+        return upload?.phase === "queued" || upload?.phase === "running";
+      });
+      if (uploading) {
+        setDatabaseError("Wait for the main image uploads to finish, then save the product and variants.");
+        return;
+      }
 
       if (
         !window.confirm(
@@ -2642,6 +2662,22 @@ export default function ProductCard() {
           )}
         </div>
 
+        {parentProducts.map(parent => {
+          const variants = products.filter(product => product.parentId === parent.id);
+          if (!variants.length) return null;
+          const visible = activeStep === 4 || (activeStep === 3 && parent.id === currentParent?.id);
+          return <div key={parent.id} hidden={!visible} className="px-4 sm:px-5">
+            <MeeshoVariantImagesUpload
+              productId={parent.id}
+              productName={parent.productName}
+              variants={draftVariantImageRows(parent, variants)}
+              onChange={updateBatchMainImage}
+              disabled={isSaving}
+              saveHint="Use Save Parent + Variants in Step 4 to save these image links."
+            />
+          </div>;
+        })}
+
         <div className="flex flex-col gap-3 border-t border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
           <p className="text-xs text-slate-500">
             {activeStep === 1 && (hasOneModel ? `${selectedModel} selected. Continue when ready.` : "Choose exactly one phone model to begin.")}
@@ -2797,6 +2833,11 @@ export default function ProductCard() {
           field,
           value,
         ) => {
+          if (field === "image1") {
+            updateBatchMainImage(productId, value);
+            return;
+          }
+
           if (field === "brand") {
             setProducts((current) => {
               const parent = current.find(

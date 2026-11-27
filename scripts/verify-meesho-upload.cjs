@@ -367,6 +367,33 @@ test("variant main-image application preserves all supporting overrides, other v
   const before=structuredClone({parent,variants});const result=variantImages.withVariantMainImage(variants,'v2','new-main');
   assert.equal(result[0].overrides.image1,'new-main');assert.equal(result[0].overrides.image2,'custom-2');assert.equal(result[0].overrides.image3,'custom-3');assert.equal(result[0].overrides.image4,'custom-4');assert.equal(result[0].overrides.price,'123');assert.equal(result[1],variants[1]);assert.deepEqual({parent,variants},before);
 });
+test("a new product queues all ten main images by filename, including the parent V1",async()=>{
+  const product=(id,version)=>({id,productName:`Case V${version}`,version:String(version),image1:`old-${id}`,image2:'support-1',image3:'support-2',image4:'support-3'});
+  const parent=product('draft-parent',1);
+  const variants=[10,2,9,3,8,4,7,5,6].map(version=>({...product(`draft-v${version}`,version),variantNumber:version}));
+  const rows=variantImages.draftVariantImageRows(parent,variants);
+  const files=[10,4,1,9,6,2,7,8,3,5].map(version=>new File([makePng()],`${version}.png`,{type:'image/png'}));
+  const selection=variantImages.arrangeVariantMainImages(files,rows);
+  assert.deepEqual(selection.map(({file,rowId})=>[file.name,rowId]),[
+    ['1.png',parent.id],
+    ...Array.from({length:9},(_,i)=>[`${i+2}.png`,`draft-v${i+2}`]),
+  ]);
+  const {client,maxActive}=clientFixture();
+  const ticket=client.startMeeshoImageBatch(selection.map(({file,rowId})=>({
+    file,target:{rowId,field:'image1'},initialValue:rows.find(row=>row.rowId===rowId).image1,
+  })));
+  await ticket.finished;
+  assert.equal(ticket.jobs.length,10);
+  assert.equal(maxActive(),1);
+  for(const {target,name} of ticket.jobs){
+    const upload=client.getMeeshoUpload(target);
+    assert.equal(upload.phase,'ready');
+    assert.equal(upload.receipt.target.rowId,target.rowId);
+    assert.equal(upload.receipt.target.field,'image1');
+    assert.equal(upload.originalName,name);
+    assert.equal(client.getMeeshoUpload({...target,field:'image2'}),null);
+  }
+});
 test("nine variant main images queue independently while a legacy multi-tab extension is blocked before staging",async()=>{
   const f=clientFixture(),rows=Array.from({length:10},(_,i)=>({rowId:`variant-${i+2}`,version:i+2,image1:`old-${i+2}`,image2:'support-1',image3:'support-2',image4:'support-3'}));
   const ticket=f.client.startMeeshoImageBatch(rows.slice(0,9).map(row=>({file:new File([makePng()],`${row.version}.png`,{type:'image/png'}),target:{rowId:row.rowId,field:'image1'},initialValue:row.image1})));

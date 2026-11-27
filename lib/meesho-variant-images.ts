@@ -1,8 +1,28 @@
-import { validateProductImageFiles } from "./meesho-image-set";
+import { validateProductImageFiles, type ProductImageValues } from "./meesho-image-set";
 
 export type VariantImageRow = { rowId: string; version: number; title: string; image1: string; image2: string; image3: string; image4: string };
 export type VariantImageSelection = { file: File; rowId: string };
 export type VariantImageJob = { id: string; rowId: string; version: number; name: string };
+
+type DraftImageRow = ProductImageValues & {
+  id: string;
+  productName: string;
+  version: string;
+  variantNumber?: number;
+};
+
+export function draftVariantImageRows(parent: DraftImageRow, variants: readonly DraftImageRow[]): VariantImageRow[] {
+  return [parent, ...variants].map(({ id, productName, variantNumber, version, image1, image2, image3, image4 }) => ({
+    rowId: id,
+    title: productName,
+    version: id === parent.id ? 1 : (variantNumber ?? Number(version)),
+    image1,
+    image2,
+    image3,
+    image4,
+  })).sort((a, b) => a.version - b.version);
+}
+
 export function withVariantMainImage<T extends {id:string;overrides?:{image1?:string}}>(variants: readonly T[],rowId:string,url:string):T[] {
   return variants.map(variant=>variant.id===rowId?{...variant,overrides:{...variant.overrides,image1:url}}:variant);
 }
