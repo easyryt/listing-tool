@@ -134,7 +134,7 @@ test("uploads target the connected extension through a channel legacy bridges ca
 });
 const sellerPage = seller => `https://supplier.meesho.com/panel/v3/new/cataloging/${seller}/images-bulk-upload`;
 function loadMeeshoExtension(...files){
-  const context=vm.createContext({URL});
+  const context=vm.createContext({URL,setTimeout});
   for(const file of files)vm.runInContext(fs.readFileSync(path.join(root,'browser-extension',file),'utf8'),context);
   return context;
 }
@@ -184,26 +184,63 @@ test("seller discovery validates open pages, deduplicates the same seller and st
   assert.equal(await resolveSellerPage(chromeFor([motiw,'https://supplier.meesho.com/panel/v3/new/fulfillment/motiw/claims'])),motiw);
   assert.equal(await resolveSellerPage(chromeFor([other]),motiw),motiw);
   assert.equal(await resolveSellerPage(chromeFor([other])),other);
+  assert.equal(await resolveSellerPage(chromeFor(['https://supplier.meesho.com/panel/v3/new/growth/jifdb/home'])),sellerPage('jifdb'));
   await assert.rejects(resolveSellerPage(chromeFor([motiw,other])),/More than one/);
-  assert.equal(await resolveSellerPage(chromeFor([])),motiw);
-  assert.equal(await resolveSellerPage(chromeFor([other.replace('.com','.com.example'),{url:other,pendingUrl:'https://supplier.meesho.com/'}])),motiw);
 });
-test("the upload runner opens the fallback page and handles a sign-in redirect before supplying any image",async()=>{
-  const {BrowserTestMeesho,BrowserTestMeeshoRunner}=loadMeeshoExtension('meesho-core.js','meesho-runner.js');
+test("seller discovery follows the signed-in dashboard redirect when no verified seller tab is open",async()=>{
+  const {BrowserTestMeesho}=loadMeeshoExtension('meesho-core.js');
+  const entryUrl=sellerPage('motiw');
+  const dashboard='https://supplier.meesho.com/panel/v3/new/growth/jifdb/home';
+  const navigations=[
+    {status:'complete',url:entryUrl,pendingUrl:dashboard},
+    {status:'complete',url:entryUrl},
+    {status:'complete',url:dashboard},
+  ];
+  const closed=[];
+  const chrome={
+    tabs:{
+      query:async()=>[
+        {url:sellerPage('other').replace('.com','.com.example')},
+        {url:sellerPage('other'),pendingUrl:'https://supplier.meesho.com/'},
+      ],
+      create:async ({url,active})=>{assert.equal(url,entryUrl);assert.equal(active,false);return {id:76};},
+      get:async id=>{assert.equal(id,76);return navigations.shift();},
+      remove:async id=>closed.push(id),
+    },
+    scripting:{executeScript:async ({args})=>{assert.equal(args[0],entryUrl);return [{result:false}];}},
+  };
+  assert.equal(await BrowserTestMeesho.resolveSellerPage(chrome),sellerPage('jifdb'));
+  assert.deepEqual(closed,[76]);
+});
+test("a signed-out session opens Meesho for sign-in without selecting an upload destination",async()=>{
+  const context=loadMeeshoExtension('meesho-core.js');
+  let time=0;
+  context.Date={now:()=>time};
+  context.setTimeout=(resolve,ms)=>{time+=ms;resolve();};
+  const focused=[];
+  const chrome={tabs:{
+    query:async()=>[],
+    create:async()=>({id:77}),
+    get:async()=>({status:'complete',url:'https://supplier.meesho.com/'}),
+    update:async(id,{active})=>{if(active)focused.push(id);},
+  }};
+  await assert.rejects(context.BrowserTestMeesho.resolveSellerPage(chrome),/Sign in to Meesho in the tab that opened/);
+  assert.deepEqual(focused,[77]);
+});
+test("the upload runner opens the selected seller page and stops before sending an image if it redirects",async()=>{
+  const {BrowserTestMeeshoRunner}=loadMeeshoExtension('meesho-core.js','meesho-runner.js');
   const sourceUrl=sellerPage('motiw');
   const state={};
   const opened=[];
   const tab={id:5,url:sourceUrl,status:'complete'};
   const chromeApi={
     tabs:{
-      query:async()=>[],
       create:async options=>{opened.push(options);return tab;},
       get:async()=>tab,
     },
     storage:{local:{get:async()=>state,set:async values=>Object.assign(state,values)}},
     scripting:{executeScript:async()=>[{result:true}]},
   };
-  assert.equal(await BrowserTestMeesho.resolveSellerPage(chromeApi),sourceUrl);
   const runner=new BrowserTestMeeshoRunner({chromeApi,upload:async()=>assert.fail('An image may only be supplied after the seller page is verified.')});
   await runner.open({id:'first',sourceUrl});
   assert.equal(opened.length,1);

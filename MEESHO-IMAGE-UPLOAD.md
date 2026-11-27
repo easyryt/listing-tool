@@ -6,11 +6,11 @@ The custom Chrome extension reuses one extension-owned Meesho Image Bulk Upload 
 
 ## Connect the extension
 
-Install or update to **Browser AI Test 0.12.2** using the ZIP linked under Product images. Keep one copy enabled and grant it site access to the listing site and the Meesho Supplier Panel in Chrome. The listing page checks the connection automatically and shows the result before image selection. When Chrome makes the extension available in an open tab, the page checks again.
+Install or update to **Browser AI Test 0.12.3** using the ZIP linked under Product images. Keep one copy enabled and grant it site access to the listing site and the Meesho Supplier Panel in Chrome. The listing page checks the connection automatically and shows the result before image selection. When Chrome makes the extension available in an open tab, the page checks again.
 
 ## Choose your seller account
 
-Choose **Upload to Meesho**. The extension opens the seller’s **Image Bulk Upload** page automatically and uses the same destination for the entire batch. It uses the `motiw` upload page when it cannot identify a seller from an open **Image Bulk Upload** or **Claims** page. To set a different default for this browser, save your seller’s **Image Bulk Upload** URL in the upload settings. If multiple sellers are detected, select the intended seller there. Sign in in the tab the extension opens if Meesho prompts you, then retry the saved image.
+Choose **Upload to Meesho**. The extension identifies the seller from the signed-in **Home**, **Claims**, or **Image Bulk Upload** page and opens the seller’s upload page for the batch. If no seller page is open, the extension opens Meesho and follows its sign-in or seller redirect. If Meesho prompts you to sign in, use the tab that opens, then select the image again. For a specific seller, save that seller’s **Image Bulk Upload** URL in the upload settings. This also resolves the choice when multiple seller pages are open.
 
 For a saved upload, picking a seller applies only before the file was supplied. If the file may have been sent, retry checks the original seller tab. Updating the extension clears the staged image bytes, so select the image again if Chrome says the staged file expired and the upload never started.
 
@@ -62,7 +62,7 @@ The phone catalog and design 359 charm page were checked in Chrome. The shared u
 ## Setup
 
 1. Open **https://listing-tool-three.vercel.app** in Chrome after redeploying the updated frontend. Local development at **http://localhost:3000** or **http://127.0.0.1:3000** also works. Use `npm run dev`, or `npm run dev:webpack` if Turbopack’s CSS worker fails on this computer.
-2. Update and reload **Browser AI Test — Local Listing Assistant** in `chrome://extensions`. Confirm **0.12.2** and grant access to the deployed listing domain and Meesho Supplier Panel.
+2. Update and reload **Browser AI Test — Local Listing Assistant** in `chrome://extensions`. Confirm **0.12.3** and grant access to the deployed listing domain and Meesho Supplier Panel.
 3. For a fresh installation, use **Load unpacked** with this repository’s `browser-extension` folder. A distributable ZIP is served at **/listing-meesho-extension.zip**. Keep one extension copy enabled.
 4. Open the listing page and check for the connected status under **Product images**. Choose **Upload to Meesho** to open the Meesho tab automatically.
 
